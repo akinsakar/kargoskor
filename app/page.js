@@ -65,6 +65,8 @@ export default function Home() {
   const [selectedCarrierInfo, setSelectedCarrierInfo] = useState(null)
   const [rating, setRating] = useState(0)
   const [submitted, setSubmitted] = useState(false)
+  const [ratingSubmitting, setRatingSubmitting] = useState(false)
+  const [ratingError, setRatingError] = useState('')
   const [carriers, setCarriers] = useState([])
   const [scores, setScores] = useState([])
 
@@ -141,16 +143,27 @@ export default function Home() {
   }
 
   async function handleRatingSubmit() {
-    if (rating === 0 || !selectedCarrierId || !user) return
+    if (rating === 0 || !selectedCarrierId || !user || ratingSubmitting) return
+    setRatingSubmitting(true)
+    setRatingError('')
     const hash = await hashTrackingNumber(trackingNo)
     const ins = { user_id: user.id, carrier_id: selectedCarrierId, tracking_number_hash: hash, score: rating,
       origin_city: trackingData?.originCity || null, destination_city: trackingData?.destinationCity || null, delivery_days: trackingData?.deliveryDays || null }
     if (trackingData?.pickupDate) try { ins.pickup_date = new Date(trackingData.pickupDate).toISOString().split('T')[0] } catch {}
     if (trackingData?.deliveryDate) try { ins.delivery_date = new Date(trackingData.deliveryDate).toISOString().split('T')[0] } catch {}
     const { error } = await supabase.from('ratings').insert(ins)
-    if (error) { console.error(error); if (error.code === '23505') { setTrackingError('Bu takip numarası daha önce değerlendirilmiş.'); resetAndGoBack() } return }
+    if (error) {
+      console.error(error)
+      setRatingSubmitting(false)
+      if (error.code === '23505') {
+        setRatingError('Bu takip numarası zaten değerlendirilmiş — puanın önceden kaydedilmiş.')
+      } else {
+        setRatingError('Kaydedilirken bir hata oluştu, tekrar dene.')
+      }
+      return
+    }
     setSubmitted(true); await loadScores()
-    setTimeout(() => { setSubmitted(false); resetAndGoBack() }, 2000)
+    setTimeout(() => { setSubmitted(false); setRatingSubmitting(false); resetAndGoBack() }, 2000)
   }
 
   function resetAndGoBack() {
@@ -320,7 +333,10 @@ export default function Home() {
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8 }}><StarRating rating={rating} onRate={setRating} size={40} /></div>
           {rating > 0 && <p style={{ fontSize: 14, color: 'var(--accent)', margin: '8px 0 0', fontWeight: 600 }}>
             {['', 'Çok kötü 😤', 'Kötü 😕', 'İdare eder 😐', 'İyi 🙂', 'Mükemmel 🤩'][rating]}</p>}
-          <button className="btn-primary" onClick={handleRatingSubmit} disabled={rating === 0} style={{ marginTop: 20 }}>Puanı Gönder</button>
+          {ratingError && <p className="error-text" style={{ marginTop: 12 }}>{ratingError}</p>}
+          <button className="btn-primary" onClick={handleRatingSubmit} disabled={rating === 0 || ratingSubmitting} style={{ marginTop: 20 }}>
+            {ratingSubmitting ? 'Gönderiliyor...' : 'Puanı Gönder'}
+          </button>
         </div>
       </div>
     )
