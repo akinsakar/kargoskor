@@ -13,7 +13,7 @@ function StarRating({ rating, onRate, size = 32, interactive = true }) {
           onMouseLeave={() => interactive && setHover(0)}
           style={{ background: 'none', border: 'none', cursor: interactive ? 'pointer' : 'default',
             fontSize: size, padding: 0, lineHeight: 1,
-            color: star <= (hover || rating) ? '#F59E0B' : '#374151',
+            color: star <= (hover || rating) ? '#FFB500' : '#D5D5D5',
             transform: star <= (hover || rating) ? 'scale(1.1)' : 'scale(1)',
             transition: 'all 0.15s ease' }}>★</button>
       ))}
@@ -23,10 +23,10 @@ function StarRating({ rating, onRate, size = 32, interactive = true }) {
 
 function ScoreBar({ score, max = 5 }) {
   const pct = (score / max) * 100
-  const color = score >= 4 ? '#10B981' : score >= 3 ? '#F59E0B' : '#EF4444'
+  const color = score >= 4 ? '#0A7D3E' : score >= 3 ? '#B4770A' : '#C10E21'
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%' }}>
-      <div style={{ flex: 1, height: 8, background: '#1E293B', borderRadius: 4, overflow: 'hidden' }}>
+      <div style={{ flex: 1, height: 8, background: '#EFEFEF', borderRadius: 4, overflow: 'hidden' }}>
         <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 4, transition: 'width 0.8s ease' }} />
       </div>
       <span style={{ fontWeight: 700, fontSize: 15, color, minWidth: 32, textAlign: 'right' }}>
@@ -177,7 +177,7 @@ export default function Home() {
     <div className="container">
       <div style={{ textAlign: 'center', paddingTop: 40, marginBottom: 40 }}>
         <div style={{ fontSize: 44, marginBottom: 8 }}>📦</div>
-        <h1 style={{ fontSize: 32, fontWeight: 800, margin: 0, letterSpacing: -1, background: 'linear-gradient(135deg, #F59E0B, #FBBF24)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>KargoSkor</h1>
+        <h1 style={{ fontSize: 32, fontWeight: 800, margin: 0, letterSpacing: -0.5, color: 'var(--brand)' }}>KargoSkor</h1>
         <p style={{ color: 'var(--text-muted)', fontSize: 14, marginTop: 8 }}>Kargonu puanla, herkesin işini kolaylaştır.</p>
       </div>
       <div className="card">
@@ -185,7 +185,8 @@ export default function Home() {
           {['register', 'login'].map(mode => (
             <button key={mode} onClick={() => { setLoginMode(mode); setAuthError('') }}
               style={{ flex: 1, padding: '10px 0', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.2s',
-                background: loginMode === mode ? 'rgba(245,158,11,0.15)' : 'transparent', color: loginMode === mode ? 'var(--accent)' : 'var(--text-muted)' }}>
+                background: loginMode === mode ? '#FFFFFF' : 'transparent', color: loginMode === mode ? 'var(--brand)' : 'var(--text-muted)',
+                boxShadow: loginMode === mode ? '0 1px 3px rgba(0,0,0,0.1)' : 'none' }}>
               {mode === 'register' ? 'Kayıt Ol' : 'Giriş Yap'}
             </button>))}
         </div>
@@ -215,7 +216,7 @@ export default function Home() {
     <div className="container">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
         <div><p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>Hoş geldin,</p>
-          <h2 style={{ fontSize: 20, fontWeight: 700, margin: '2px 0 0' }}>{user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Kullanıcı'}</h2></div>
+          <h2 style={{ fontSize: 20, fontWeight: 700, margin: '2px 0 0', color: 'var(--brand)' }}>{user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Kullanıcı'}</h2></div>
         <button onClick={handleLogout} style={{ background: 'var(--bg-input)', border: '1px solid var(--border-input)', borderRadius: 8, padding: '8px 14px', color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>Çıkış</button>
       </div>
       <div className="card" style={{ marginBottom: 20 }}>
@@ -252,11 +253,14 @@ export default function Home() {
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {carriers.map(c => (
-          <button key={c.id} onClick={() => handleCarrierSelect(c)} style={{
+          <button key={c.id} onClick={() => handleCarrierSelect(c)} className="card" style={{
             display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px', cursor: 'pointer', textAlign: 'left', width: '100%', fontSize: 15, fontWeight: 600,
-            fontFamily: 'inherit', color: 'var(--text-primary)', transition: 'border-color 0.2s',
-            background: 'linear-gradient(145deg, #131C31, #0F172A)', border: '1px solid rgba(148,163,184,0.1)', borderRadius: 16 }}>
-            <span style={{ fontSize: 22 }}>{c.logo_emoji}</span><span>{c.name}</span>
+            fontFamily: 'inherit', color: 'var(--text-primary)', transition: 'border-color 0.2s' }}>
+            {c.logo_url
+              ? <img src={c.logo_url} alt={c.name} className="carrier-logo" onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'inline' }} />
+              : null}
+            <span style={{ fontSize: 22, display: c.logo_url ? 'none' : 'inline' }}>{c.logo_emoji}</span>
+            <span>{c.name}</span>
           </button>))}
       </div>
     </div>
@@ -280,13 +284,16 @@ export default function Home() {
 
         {/* Firma */}
         <div className="card" style={{ marginBottom: 16, textAlign: 'center', padding: '28px 24px' }}>
-          <span style={{ fontSize: 36 }}>{selectedCarrierInfo?.logo_emoji}</span>
-          <h2 style={{ fontSize: 20, fontWeight: 700, margin: '8px 0 4px' }}>{selectedCarrierInfo?.name}</h2>
+          {selectedCarrierInfo?.logo_url
+            ? <img src={selectedCarrierInfo.logo_url} alt={selectedCarrierInfo.name} className="carrier-logo-lg" style={{ margin: '0 auto' }} onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'inline' }} />
+            : null}
+          <span style={{ fontSize: 36, display: selectedCarrierInfo?.logo_url ? 'none' : 'inline' }}>{selectedCarrierInfo?.logo_emoji}</span>
+          <h2 style={{ fontSize: 20, fontWeight: 700, margin: '8px 0 4px', color: 'var(--brand)' }}>{selectedCarrierInfo?.name}</h2>
           <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0, fontFamily: 'monospace' }}>{trackingNo}</p>
           {trackingData?.status && (
             <div style={{ display: 'inline-block', marginTop: 10, padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-              background: trackingData.status === 'delivered' ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)',
-              color: trackingData.status === 'delivered' ? '#10B981' : '#F59E0B' }}>
+              background: trackingData.status === 'delivered' ? '#E7F5EC' : '#FFF6E0',
+              color: trackingData.status === 'delivered' ? 'var(--green)' : 'var(--yellow)' }}>
               {trackingData.status === 'delivered' ? '✓ Teslim Edildi' : trackingData.status === 'intransit' ? '🚚 Yolda' : trackingData.status === 'outfordelivery' ? '📬 Dağıtımda' : '📦 ' + trackingData.status}
             </div>
           )}
@@ -316,10 +323,10 @@ export default function Home() {
               </div>
             </div>
             {trackingData.deliveryDays && (
-              <div style={{ background: '#0B1121', borderRadius: 10, padding: '14px 16px', textAlign: 'center' }}>
+              <div style={{ background: 'var(--bg-input)', borderRadius: 10, padding: '14px 16px', textAlign: 'center' }}>
                 <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 4px' }}>Teslim Süresi</p>
                 <p style={{ fontSize: 28, fontWeight: 800, margin: 0,
-                  color: trackingData.deliveryDays <= 1 ? '#10B981' : trackingData.deliveryDays <= 3 ? '#F59E0B' : '#EF4444' }}>
+                  color: trackingData.deliveryDays <= 1 ? 'var(--green)' : trackingData.deliveryDays <= 3 ? 'var(--yellow)' : 'var(--red)' }}>
                   {trackingData.deliveryDays} gün</p>
               </div>
             )}
@@ -331,7 +338,7 @@ export default function Home() {
           <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px' }}>Bu teslimata kaç puan veriyorsun?</h3>
           <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 20px' }}>Deneyimini 1-5 arası değerlendir</p>
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8 }}><StarRating rating={rating} onRate={setRating} size={40} /></div>
-          {rating > 0 && <p style={{ fontSize: 14, color: 'var(--accent)', margin: '8px 0 0', fontWeight: 600 }}>
+          {rating > 0 && <p style={{ fontSize: 14, color: 'var(--brand)', margin: '8px 0 0', fontWeight: 600 }}>
             {['', 'Çok kötü 😤', 'Kötü 😕', 'İdare eder 😐', 'İyi 🙂', 'Mükemmel 🤩'][rating]}</p>}
           {ratingError && <p className="error-text" style={{ marginTop: 12 }}>{ratingError}</p>}
           <button className="btn-primary" onClick={handleRatingSubmit} disabled={rating === 0 || ratingSubmitting} style={{ marginTop: 20 }}>
@@ -351,7 +358,10 @@ function ScoreList({ scores }) {
       {scores.map((s, i) => (
         <div key={s.id || i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-dim)', width: 18, textAlign: 'right' }}>{i + 1}.</span>
-          <span style={{ fontSize: 16, width: 24 }}>{s.logo_emoji}</span>
+          {s.logo_url
+            ? <img src={s.logo_url} alt={s.name} className="carrier-logo" style={{ width: 24, height: 24 }} onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'inline' }} />
+            : null}
+          <span style={{ fontSize: 16, width: 24, display: s.logo_url ? 'none' : 'inline' }}>{s.logo_emoji}</span>
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
               <span style={{ fontSize: 14, fontWeight: 600 }}>{s.name}</span>
