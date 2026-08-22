@@ -69,6 +69,9 @@ export default function Home() {
   const [ratingError, setRatingError] = useState('')
   const [carriers, setCarriers] = useState([])
   const [scores, setScores] = useState([])
+  const [sourceNote, setSourceNote] = useState('')
+  const [myParcels, setMyParcels] = useState([])
+  const [myParcelsLoading, setMyParcelsLoading] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -122,8 +125,8 @@ export default function Home() {
     setTrackingError(''); setTrackingLoading(true); setTrackingData(null)
     try {
       const hash = await hashTrackingNumber(trackingNo)
-      const { data: existing } = await supabase.from('ratings').select('id').eq('tracking_number_hash', hash).single()
-      if (existing) { setTrackingError('Bu takip numarası daha önce değerlendirilmiş.'); setTrackingLoading(false); return }
+      const { data: alreadyUsed } = await supabase.rpc('check_tracking_used', { hash })
+      if (alreadyUsed) { setTrackingError('Bu takip numarası daha önce değerlendirilmiş.'); setTrackingLoading(false); return }
 
       let apiData = null
       try {
@@ -147,7 +150,8 @@ export default function Home() {
     setRatingSubmitting(true)
     setRatingError('')
     const hash = await hashTrackingNumber(trackingNo)
-    const ins = { user_id: user.id, carrier_id: selectedCarrierId, tracking_number_hash: hash, score: rating,
+    const ins = { user_id: user.id, carrier_id: selectedCarrierId, tracking_number_hash: hash, tracking_number: trackingNo.trim(),
+      source_note: sourceNote.trim() || null, score: rating,
       origin_city: trackingData?.originCity || null, destination_city: trackingData?.destinationCity || null, delivery_days: trackingData?.deliveryDays || null }
     if (trackingData?.pickupDate) try { ins.pickup_date = new Date(trackingData.pickupDate).toISOString().split('T')[0] } catch {}
     if (trackingData?.deliveryDate) try { ins.delivery_date = new Date(trackingData.deliveryDate).toISOString().split('T')[0] } catch {}
@@ -167,7 +171,19 @@ export default function Home() {
   }
 
   function resetAndGoBack() {
-    setRating(0); setTrackingNo(''); setSelectedCarrierId(null); setSelectedCarrierInfo(null); setTrackingData(null); setTrackingError(''); setScreen('dashboard')
+    setRating(0); setTrackingNo(''); setSelectedCarrierId(null); setSelectedCarrierInfo(null); setTrackingData(null); setTrackingError(''); setSourceNote(''); setScreen('dashboard')
+  }
+
+  async function loadMyParcels() {
+    if (!user) return
+    setMyParcelsLoading(true)
+    const { data, error } = await supabase
+      .from('ratings')
+      .select('*, carrier:carriers(name, logo_url, logo_emoji)')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+    if (!error && data) setMyParcels(data)
+    setMyParcelsLoading(false)
   }
 
   if (loading) return (<div className="container" style={{ paddingTop: 100, textAlign: 'center' }}><div style={{ fontSize: 44 }}>📦</div><p style={{ color: 'var(--text-muted)', marginTop: 12 }}>Yükleniyor...</p></div>)
@@ -217,7 +233,10 @@ export default function Home() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
         <div><p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>Hoş geldin,</p>
           <h2 style={{ fontSize: 20, fontWeight: 700, margin: '2px 0 0', color: 'var(--brand)' }}>{user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Kullanıcı'}</h2></div>
-        <button onClick={handleLogout} style={{ background: 'var(--bg-input)', border: '1px solid var(--border-input)', borderRadius: 8, padding: '8px 14px', color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>Çıkış</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => { loadMyParcels(); setScreen('my_parcels') }} style={{ background: 'var(--brand)', border: 'none', borderRadius: 8, padding: '8px 14px', color: '#FFFFFF', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>📦 Kargolarım</button>
+          <button onClick={handleLogout} style={{ background: 'var(--bg-input)', border: '1px solid var(--border-input)', borderRadius: 8, padding: '8px 14px', color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>Çıkış</button>
+        </div>
       </div>
       <div className="card" style={{ marginBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}><span style={{ fontSize: 20 }}>📦</span><h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Kargonu Puanla</h3></div>
@@ -333,6 +352,12 @@ export default function Home() {
           </div>
         )}
 
+        {/* Opsiyonel not */}
+        <div className="card" style={{ marginBottom: 16 }}>
+          <label className="label">Not (opsiyonel)</label>
+          <input className="input" placeholder="Örn: Trendyol siparişi" value={sourceNote} onChange={e => setSourceNote(e.target.value)} />
+        </div>
+
         {/* Puanlama */}
         <div className="card" style={{ textAlign: 'center' }}>
           <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px' }}>Bu teslimata kaç puan veriyorsun?</h3>
@@ -348,6 +373,65 @@ export default function Home() {
       </div>
     )
   }
+  // ═══ MY PARCELS (Gelen Kargolarım) ═══
+  if (screen === 'my_parcels') return (
+    <div className="container">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <button onClick={() => setScreen('dashboard')} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 14, cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}>← Geri dön</button>
+      </div>
+
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 800, color: 'var(--brand)', margin: 0 }}>📦 Gelen Kargolarım</h2>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '4px 0 0' }}>
+          {myParcelsLoading ? 'Yükleniyor...' : `${myParcels.length} kargo`}
+        </p>
+      </div>
+
+      {!myParcelsLoading && myParcels.length === 0 && (
+        <div className="card" style={{ textAlign: 'center', padding: '40px 24px' }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>📭</div>
+          <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>Henüz kargo eklemedin.</p>
+          <p style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 4 }}>Takip numarası girip puanladığında burada görünecek.</p>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {myParcels.map(p => (
+          <div key={p.id} className="card" style={{ padding: '18px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+              {p.carrier?.logo_url
+                ? <img src={p.carrier.logo_url} alt={p.carrier.name} className="carrier-logo" onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'inline' }} />
+                : null}
+              <span style={{ fontSize: 20, display: p.carrier?.logo_url ? 'none' : 'inline' }}>{p.carrier?.logo_emoji}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>{p.carrier?.name || 'Bilinmeyen firma'}</p>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '2px 0 0', fontFamily: 'monospace' }}>{p.tracking_number || '—'}</p>
+              </div>
+              <div style={{ display: 'flex', gap: 2 }}>
+                {[1,2,3,4,5].map(s => (
+                  <span key={s} style={{ fontSize: 14, color: s <= p.score ? '#FFB500' : '#E5E5E5' }}>★</span>
+                ))}
+              </div>
+            </div>
+
+            {p.source_note && (
+              <div style={{ display: 'inline-block', background: 'var(--bg-input)', borderRadius: 20, padding: '3px 12px', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600 }}>
+                🏷️ {p.source_note}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-muted)', borderTop: '1px solid var(--border-light)', paddingTop: 10 }}>
+              {p.origin_city && <span>📍 {p.origin_city}{p.destination_city ? ` → ${p.destination_city}` : ''}</span>}
+              {p.delivery_date && <span>📅 {formatDate(p.delivery_date)}</span>}
+              {p.delivery_days != null && <span style={{ fontWeight: 700, color: p.delivery_days <= 1 ? 'var(--green)' : p.delivery_days <= 3 ? 'var(--yellow)' : 'var(--red)' }}>⏱ {p.delivery_days} gün</span>}
+              {!p.origin_city && !p.delivery_days && <span style={{ color: 'var(--text-dim)' }}>Detaylı teslimat verisi yok</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+
   return null
 }
 
