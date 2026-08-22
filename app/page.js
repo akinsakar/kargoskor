@@ -239,7 +239,7 @@ export default function Home() {
         </div>
       </div>
       <div className="card" style={{ marginBottom: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}><span style={{ fontSize: 20 }}>📦</span><h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Kargonu Puanla</h3></div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}><span style={{ fontSize: 20 }}>📦</span><h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Kargonu Ekle</h3></div>
         <form onSubmit={handleTrackingSubmit}>
           <label className="label">Takip Numarası</label>
           <div style={{ display: 'flex', gap: 8 }}>
