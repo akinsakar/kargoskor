@@ -86,6 +86,7 @@ export default function Home() {
   const [detailParcel, setDetailParcel] = useState(null)
   const [kebabOpen, setKebabOpen] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
+  const [debugApi, setDebugApi] = useState(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -157,6 +158,7 @@ export default function Home() {
         if (json.verified && json.eventCount > 0) apiData = json
       } catch (apiErr) { console.error('API error:', apiErr) }
 
+      setDebugApi(json)
       setTrackingData(apiData)
 
       // Kargo firmasını otomatik tanımaya çalış — checkpoint verisi (apiData) henüz
@@ -347,6 +349,11 @@ export default function Home() {
           <h2 style={{ fontSize: 18, fontWeight: 700, margin: '8px 0 4px' }}>Kargo firmasını otomatik bulamadık</h2>
           <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>Bu gönderiyi hangi firma taşıdı?</p>
         </div>
+        {debugApi && (
+          <div style={{ background: '#FFF8E1', border: '1px dashed #D9B84A', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 11, color: '#6B5900', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+            <strong>DEBUG (geçici):</strong> verified={String(debugApi.verified)} · courierCode={JSON.stringify(debugApi.courierCode)} · courierName={JSON.stringify(debugApi.courierName)} · error={JSON.stringify(debugApi.error)}
+          </div>
+        )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {carriers.map(c => (
             <button key={c.id} onClick={() => handleCarrierSelect(c)} className="card" style={{
