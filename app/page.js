@@ -352,6 +352,7 @@ export default function Home() {
         {debugApi && (
           <div style={{ background: '#FFF8E1', border: '1px dashed #D9B84A', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 11, color: '#6B5900', fontFamily: 'monospace', wordBreak: 'break-all' }}>
             <strong>DEBUG (geçici):</strong> verified={String(debugApi.verified)} · courierCode={JSON.stringify(debugApi.courierCode)} · courierName={JSON.stringify(debugApi.courierName)} · error={JSON.stringify(debugApi.error)}
+            {debugApi.debug && <div style={{ marginTop: 6 }}>debug={JSON.stringify(debugApi.debug)}</div>}
           </div>
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
