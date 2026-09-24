@@ -168,11 +168,28 @@ export default function Home() {
         .replace(/ı/g, 'i').replace(/i̇/g, 'i').replace(/ç/g, 'c').replace(/ğ/g, 'g')
         .replace(/ö/g, 'o').replace(/ş/g, 's').replace(/ü/g, 'u').replace(/[^a-z0-9]/g, '')
 
+      // AfterShip kurye kodu bizim firma isimlerimizle birebir eşleşmeyebilir
+      // (ör. "dhl-global-mail-api" → "DHL eCommerce Türkiye"). Test ettikçe bu
+      // tabloyu büyütüyoruz.
+      const KNOWN_CODE_ALIASES = {
+        'dhl-global-mail-api': 'dhl ecommerce turkiye',
+        'dhl-ecommerce': 'dhl ecommerce turkiye',
+        'dhl-ecommerce-tr': 'dhl ecommerce turkiye',
+        'mng-kargo': 'dhl ecommerce turkiye',
+      }
+
       let matched = null
-      const guess = json?.courierName || json?.courierCode
-      if (guess) {
-        const ng = norm(guess)
-        matched = carriers.find(c => { const nc = norm(c.name); return ng && nc && (nc.includes(ng) || ng.includes(nc)) })
+      const rawCode = (json?.courierCode || '').toLowerCase()
+      if (KNOWN_CODE_ALIASES[rawCode]) {
+        const na = norm(KNOWN_CODE_ALIASES[rawCode])
+        matched = carriers.find(c => { const nc = norm(c.name); return nc.includes(na) || na.includes(nc) })
+      }
+      if (!matched) {
+        const guess = json?.courierName || json?.courierCode
+        if (guess) {
+          const ng = norm(guess)
+          matched = carriers.find(c => { const nc = norm(c.name); return ng && nc && (nc.includes(ng) || ng.includes(nc)) })
+        }
       }
       if (!matched && addSelectedCarrierId) matched = carriers.find(c => c.id === addSelectedCarrierId)
 
