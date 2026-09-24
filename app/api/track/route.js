@@ -10,10 +10,10 @@ async function fetchTracking(trackingNumber, apiKey) {
   const res = await fetch(`${BASE}?tracking_numbers=${encodeURIComponent(trackingNumber)}`, {
     headers: { 'as-api-key': apiKey },
   })
-  if (!res.ok) return null
-  const data = await res.json()
+  const data = await res.json().catch(() => null)
+  if (!res.ok) return { obj: null, status: res.status, error: data?.meta?.message || data?.meta?.code || `GET ${res.status}` }
   const trackings = data?.data?.trackings || []
-  return trackings.length > 0 ? trackings[0] : null
+  return { obj: trackings.length > 0 ? trackings[0] : null, status: res.status, error: null }
 }
 
 export async function POST(request) {
@@ -30,9 +30,13 @@ export async function POST(request) {
     }
 
     const num = trackingNumber.trim()
+    const debugInfo = {}
 
     // 1) Var olan takibi kontrol et
-    let trackingObj = await fetchTracking(num, apiKey)
+    let getResult = await fetchTracking(num, apiKey)
+    let trackingObj = getResult.obj
+    debugInfo.getStatus = getResult.status
+    debugInfo.getError = getResult.error
 
     // 2) Yoksa oluştur (AfterShip otomatik kurye tespiti yapar)
     if (!trackingObj) {
@@ -41,14 +45,28 @@ export async function POST(request) {
         headers: { 'as-api-key': apiKey, 'Content-Type': 'application/json' },
         body: JSON.stringify({ tracking: { tracking_number: num } }),
       })
+      const createData = await createRes.json().catch(() => null)
+      debugInfo.createStatus = createRes.status
+      debugInfo.createError = createData?.meta?.message || createData?.meta?.code || null
+
       if (createRes.ok) {
-        const created = await createRes.json()
-        trackingObj = created?.data?.tracking || null
+        trackingObj = createData?.data?.tracking || null
+      } else {
+        // Oluşturma başarısız oldu — muhtemelen bu numara zaten hesapta kayıtlı
+        // (örn. daha önce panelden elle eklenmiş). Tekrar GET ile aramayı dene.
+        const retry = await fetchTracking(num, apiKey)
+        trackingObj = retry.obj
+        debugInfo.retryGetStatus = retry.status
+        debugInfo.retryGetError = retry.error
       }
     }
 
     if (!trackingObj) {
-      return NextResponse.json({ verified: false, error: 'Takip oluşturulamadı' }, { status: 200 })
+      return NextResponse.json({
+        verified: false,
+        error: debugInfo.createError || debugInfo.getError || 'Takip oluşturulamadı',
+        debug: debugInfo,
+      }, { status: 200 })
     }
 
     // 3) Checkpoint verisi gelene kadar birkaç kez dene (AfterShip async çalışıyor)
@@ -56,9 +74,9 @@ export async function POST(request) {
     for (let i = 0; i < 4 && checkpoints.length === 0; i++) {
       await wait(2500)
       const refreshed = await fetchTracking(num, apiKey)
-      if (refreshed) {
-        trackingObj = refreshed
-        checkpoints = refreshed.checkpoints || []
+      if (refreshed.obj) {
+        trackingObj = refreshed.obj
+        checkpoints = refreshed.obj.checkpoints || []
       }
     }
 
@@ -68,6 +86,7 @@ export async function POST(request) {
         verified: false,
         courierCode: trackingObj.slug || null,
         courierName: trackingObj.courier_name || null,
+        debug: debugInfo,
       }, { status: 200 })
     }
 
