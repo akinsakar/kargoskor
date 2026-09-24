@@ -47,8 +47,17 @@ function formatDate(s) {
   try { return new Date(s).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' }) } catch { return null }
 }
 
+function deliveryTier(p) {
+  if (p.delivery_days == null) return { cls: 'gray', label: 'Kayıt Tamamlandı' }
+  if (p.delivery_days <= 1) return { cls: 'green', label: 'Hızlı Teslimat' }
+  if (p.delivery_days <= 3) return { cls: 'yellow', label: 'Zamanında' }
+  return { cls: 'red', label: 'Geç Teslimat' }
+}
+
 export default function Home() {
-  const [screen, setScreen] = useState('landing')
+  const [screen, setScreen] = useState('landing') // 'landing' | 'app'
+  const [tab, setTab] = useState('list') // 'list' | 'scores' | 'profile'
+  const [flow, setFlow] = useState(null) // null | 'add' | 'select_carrier' | 'rate' | 'detail'
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const [firstName, setFirstName] = useState('')
@@ -63,6 +72,8 @@ export default function Home() {
   const [trackingData, setTrackingData] = useState(null)
   const [selectedCarrierId, setSelectedCarrierId] = useState(null)
   const [selectedCarrierInfo, setSelectedCarrierInfo] = useState(null)
+  const [addSelectedCarrierId, setAddSelectedCarrierId] = useState(null)
+  const [carrierSearch, setCarrierSearch] = useState('')
   const [rating, setRating] = useState(0)
   const [submitted, setSubmitted] = useState(false)
   const [ratingSubmitting, setRatingSubmitting] = useState(false)
@@ -72,20 +83,24 @@ export default function Home() {
   const [sourceNote, setSourceNote] = useState('')
   const [myParcels, setMyParcels] = useState([])
   const [myParcelsLoading, setMyParcelsLoading] = useState(false)
+  const [detailParcel, setDetailParcel] = useState(null)
+  const [kebabOpen, setKebabOpen] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) { setUser(session.user); setScreen('dashboard') }
+      if (session?.user) { setUser(session.user); setScreen('app') }
       setLoading(false)
     })
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
-      if (session?.user) { setUser(session.user); setScreen('dashboard') }
+      if (session?.user) { setUser(session.user); setScreen('app') }
       else { setUser(null); setScreen('landing') }
     })
     return () => subscription.unsubscribe()
   }, [])
 
   useEffect(() => { loadScores(); loadCarriers() }, [])
+  useEffect(() => { if (user && screen === 'app') loadMyParcels() }, [user, screen])
 
   async function loadScores() {
     const { data } = await supabase.from('carrier_scores').select('*')
@@ -119,6 +134,12 @@ export default function Home() {
 
   async function handleLogout() { await supabase.auth.signOut() }
 
+  function openAddFlow() {
+    setTrackingNo(''); setTrackingError(''); setTrackingData(null); setSourceNote('')
+    setAddSelectedCarrierId(null); setCarrierSearch(''); setRating(0); setRatingError('')
+    setFlow('add')
+  }
+
   async function handleTrackingSubmit(e) {
     e.preventDefault()
     if (!trackingNo.trim()) return
@@ -136,13 +157,26 @@ export default function Home() {
       } catch (apiErr) { console.error('API error:', apiErr) }
 
       setTrackingData(apiData)
-      setScreen('select_carrier')
+
+      // Kargo firmasını otomatik tanımaya çalış
+      let matched = null
+      if (apiData?.courierName) {
+        const name = apiData.courierName.toLowerCase()
+        matched = carriers.find(c => name.includes(c.name.toLowerCase()) || c.name.toLowerCase().includes(name))
+      }
+      if (!matched && addSelectedCarrierId) matched = carriers.find(c => c.id === addSelectedCarrierId)
+
+      if (matched) {
+        setSelectedCarrierId(matched.id); setSelectedCarrierInfo(matched); setFlow('rate')
+      } else {
+        setFlow('select_carrier')
+      }
     } catch (err) { console.error(err); setTrackingError('Bir hata oluştu, tekrar deneyin.') }
     setTrackingLoading(false)
   }
 
   function handleCarrierSelect(carrier) {
-    setSelectedCarrierId(carrier.id); setSelectedCarrierInfo(carrier); setScreen('rate')
+    setSelectedCarrierId(carrier.id); setSelectedCarrierInfo(carrier); setFlow('rate')
   }
 
   async function handleRatingSubmit() {
@@ -166,12 +200,16 @@ export default function Home() {
       }
       return
     }
-    setSubmitted(true); await loadScores()
-    setTimeout(() => { setSubmitted(false); setRatingSubmitting(false); resetAndGoBack() }, 2000)
+    setSubmitted(true)
+    await loadScores()
+    await loadMyParcels()
+    setTimeout(() => { setSubmitted(false); setRatingSubmitting(false); resetAndGoBack() }, 1800)
   }
 
   function resetAndGoBack() {
-    setRating(0); setTrackingNo(''); setSelectedCarrierId(null); setSelectedCarrierInfo(null); setTrackingData(null); setTrackingError(''); setSourceNote(''); setScreen('dashboard')
+    setRating(0); setTrackingNo(''); setSelectedCarrierId(null); setSelectedCarrierInfo(null)
+    setTrackingData(null); setTrackingError(''); setSourceNote(''); setAddSelectedCarrierId(null)
+    setFlow(null); setTab('list')
   }
 
   async function loadMyParcels() {
@@ -186,9 +224,22 @@ export default function Home() {
     setMyParcelsLoading(false)
   }
 
+  function openDetail(parcel) {
+    setDetailParcel(parcel); setKebabOpen(false); setDeleteConfirm(false); setFlow('detail')
+  }
+
+  async function handleDeleteParcel(id) {
+    const { error } = await supabase.from('ratings').delete().eq('id', id).eq('user_id', user.id)
+    if (!error) {
+      setMyParcels(prev => prev.filter(p => p.id !== id))
+      setFlow(null); setDetailParcel(null); setDeleteConfirm(false)
+      await loadScores()
+    }
+  }
+
   if (loading) return (<div className="container" style={{ paddingTop: 100, textAlign: 'center' }}><div style={{ fontSize: 44 }}>📦</div><p style={{ color: 'var(--text-muted)', marginTop: 12 }}>Yükleniyor...</p></div>)
 
-  // ═══ LANDING ═══
+  // ═══════════════════════════ LANDING ═══════════════════════════
   if (screen === 'landing') return (
     <div className="container">
       <div style={{ textAlign: 'center', paddingTop: 40, marginBottom: 40 }}>
@@ -227,210 +278,364 @@ export default function Home() {
     </div>
   )
 
-  // ═══ DASHBOARD ═══
-  if (screen === 'dashboard') return (
-    <div className="container">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
-        <div><p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>Hoş geldin,</p>
-          <h2 style={{ fontSize: 20, fontWeight: 700, margin: '2px 0 0', color: 'var(--brand)' }}>{user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Kullanıcı'}</h2></div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => { loadMyParcels(); setScreen('my_parcels') }} style={{ background: 'var(--brand)', border: 'none', borderRadius: 8, padding: '8px 14px', color: '#FFFFFF', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>📦 Kargolarım</button>
-          <button onClick={handleLogout} style={{ background: 'var(--bg-input)', border: '1px solid var(--border-input)', borderRadius: 8, padding: '8px 14px', color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>Çıkış</button>
-        </div>
-      </div>
-      <div className="card" style={{ marginBottom: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}><span style={{ fontSize: 20 }}>📦</span><h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Kargonu Ekle</h3></div>
+  // ═══════════════════════════ APP SHELL (tabs + flow overlays) ═══════════════════════════
+  if (screen === 'app') {
+
+    // ── FLOW: Kargo Ekle (tek ekran) ──
+    if (flow === 'add') return (
+      <div className="container">
+        <button onClick={() => setFlow(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 14, cursor: 'pointer', padding: 0, marginBottom: 20, fontFamily: 'inherit' }}>← Geri dön</button>
+        <h2 style={{ fontSize: 20, fontWeight: 800, color: 'var(--brand)', marginBottom: 4 }}>📦 Kargo Ekle</h2>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>Kargo firmasını ve teslimat bilgilerini otomatik olarak bulacağız.</p>
+
         <form onSubmit={handleTrackingSubmit}>
-          <label className="label">Takip Numarası</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input className="input" style={{ flex: 1 }} placeholder="Takip numaranızı girin" value={trackingNo} onChange={e => { setTrackingNo(e.target.value); setTrackingError('') }} />
-            <button className="btn-primary" type="submit" disabled={trackingLoading || !trackingNo.trim()} style={{ width: 'auto', padding: '13px 20px', fontSize: 18 }}>{trackingLoading ? '⏳' : '→'}</button>
+          <div className="card" style={{ marginBottom: 14 }}>
+            <label className="label">Takip Numarası *</label>
+            <input className="input" placeholder="Takip numaranızı girin" value={trackingNo} onChange={e => { setTrackingNo(e.target.value); setTrackingError('') }} autoFocus />
+            {trackingError && <p className="error-text">{trackingError}</p>}
+            <p style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 10, lineHeight: 1.5 }}>Kargo takip numaranızı kargo firmasının SMS veya e-posta bildiriminden bulabilirsiniz.</p>
           </div>
+
+          <div className="card" style={{ marginBottom: 14 }}>
+            <label className="label">Kargo Firması (opsiyonel)</label>
+            <input className="input" placeholder="Otomatik algılansın, ya da ara..." value={carrierSearch}
+              onChange={e => { setCarrierSearch(e.target.value); setAddSelectedCarrierId(null) }} />
+            {carrierSearch.trim() && (
+              <div className="carrier-pick-list">
+                {carriers.filter(c => c.name.toLowerCase().includes(carrierSearch.toLowerCase())).map(c => (
+                  <div key={c.id} className={`carrier-pick-item${addSelectedCarrierId === c.id ? ' selected' : ''}`}
+                    onClick={() => { setAddSelectedCarrierId(c.id); setCarrierSearch(c.name) }}>
+                    {c.logo_url
+                      ? <img src={c.logo_url} alt={c.name} className="carrier-logo" style={{ width: 22, height: 22 }} onError={e => { e.target.style.display = 'none' }} />
+                      : <span style={{ fontSize: 16 }}>{c.logo_emoji}</span>}
+                    {c.name}
+                  </div>
+                ))}
+                {carriers.filter(c => c.name.toLowerCase().includes(carrierSearch.toLowerCase())).length === 0 &&
+                  <div style={{ padding: '10px 14px', fontSize: 13, color: 'var(--text-muted)' }}>Firma bulunamadı, otomatik algılamayı deneyeceğiz.</div>}
+              </div>
+            )}
+            <p style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 10, lineHeight: 1.5 }}>Boş bırakırsan takip numarasından otomatik tespit etmeye çalışırız; bulamazsak firmayı sana sorarız.</p>
+          </div>
+
+          <div className="card" style={{ marginBottom: 20 }}>
+            <label className="label">Kargo Adı (opsiyonel)</label>
+            <input className="input" placeholder="Örn: Trendyol siparişi" value={sourceNote} onChange={e => setSourceNote(e.target.value)} />
+          </div>
+
+          <button className="btn-primary" type="submit" disabled={trackingLoading || !trackingNo.trim()}>
+            {trackingLoading ? 'Aranıyor...' : 'Devam Et →'}
+          </button>
         </form>
-        {trackingError && <p className="error-text">{trackingError}</p>}
-        <p style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 10, lineHeight: 1.5 }}>Kargo takip numaranızı kargo firmasının SMS veya e-posta bildiriminden bulabilirsiniz.</p>
-      </div>
-      <div className="card">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><span style={{ fontSize: 20 }}>🏆</span><h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Kargo Skorları</h3></div>
-          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{scores.reduce((a, s) => a + Number(s.total_ratings), 0).toLocaleString('tr-TR')} değerlendirme</span>
-        </div>
-        <ScoreList scores={scores} />
-      </div>
-      <p className="footer">KargoSkor © 2026 — Tüm hakları saklıdır.</p>
-    </div>
-  )
-
-  // ═══ CARRIER SELECTION ═══
-  if (screen === 'select_carrier') return (
-    <div className="container">
-      <button onClick={resetAndGoBack} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 14, cursor: 'pointer', padding: 0, marginBottom: 20, fontFamily: 'inherit' }}>← Geri dön</button>
-      <div className="card" style={{ marginBottom: 16, textAlign: 'center', padding: '24px' }}>
-        <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 4px', fontFamily: 'monospace' }}>{trackingNo}</p>
-        <h2 style={{ fontSize: 18, fontWeight: 700, margin: '8px 0 4px' }}>Kargo firmasını seçin</h2>
-        <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>Bu gönderiyi hangi firma taşıdı?</p>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {carriers.map(c => (
-          <button key={c.id} onClick={() => handleCarrierSelect(c)} className="card" style={{
-            display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px', cursor: 'pointer', textAlign: 'left', width: '100%', fontSize: 15, fontWeight: 600,
-            fontFamily: 'inherit', color: 'var(--text-primary)', transition: 'border-color 0.2s' }}>
-            {c.logo_url
-              ? <img src={c.logo_url} alt={c.name} className="carrier-logo" onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'inline' }} />
-              : null}
-            <span style={{ fontSize: 22, display: c.logo_url ? 'none' : 'inline' }}>{c.logo_emoji}</span>
-            <span>{c.name}</span>
-          </button>))}
-      </div>
-    </div>
-  )
-
-  // ═══ RATE SCREEN ═══
-  if (screen === 'rate') {
-    if (submitted) return (
-      <div className="container" style={{ textAlign: 'center', paddingTop: 120 }}>
-        <div style={{ fontSize: 64, marginBottom: 16 }}>✅</div>
-        <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>Puanın Kaydedildi!</h2>
-        <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>Değerlendirmen için teşekkürler.</p>
       </div>
     )
 
-    const has = trackingData && (trackingData.originCity || trackingData.destinationCity || trackingData.deliveryDays)
-
-    return (
+    // ── FLOW: Kargo firması seçimi (fallback) ──
+    if (flow === 'select_carrier') return (
       <div className="container">
-        <button onClick={() => { setScreen('select_carrier'); setRating(0) }} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 14, cursor: 'pointer', padding: 0, marginBottom: 20, fontFamily: 'inherit' }}>← Geri dön</button>
-
-        {/* Firma */}
-        <div className="card" style={{ marginBottom: 16, textAlign: 'center', padding: '28px 24px' }}>
-          {selectedCarrierInfo?.logo_url
-            ? <img src={selectedCarrierInfo.logo_url} alt={selectedCarrierInfo.name} className="carrier-logo-lg" style={{ margin: '0 auto' }} onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'inline' }} />
-            : null}
-          <span style={{ fontSize: 36, display: selectedCarrierInfo?.logo_url ? 'none' : 'inline' }}>{selectedCarrierInfo?.logo_emoji}</span>
-          <h2 style={{ fontSize: 20, fontWeight: 700, margin: '8px 0 4px', color: 'var(--brand)' }}>{selectedCarrierInfo?.name}</h2>
-          <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0, fontFamily: 'monospace' }}>{trackingNo}</p>
-          {trackingData?.status && (
-            <div style={{ display: 'inline-block', marginTop: 10, padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-              background: trackingData.status === 'delivered' ? '#E7F5EC' : '#FFF6E0',
-              color: trackingData.status === 'delivered' ? 'var(--green)' : 'var(--yellow)' }}>
-              {trackingData.status === 'delivered' ? '✓ Teslim Edildi' : trackingData.status === 'intransit' ? '🚚 Yolda' : trackingData.status === 'outfordelivery' ? '📬 Dağıtımda' : '📦 ' + trackingData.status}
-            </div>
-          )}
+        <button onClick={() => setFlow('add')} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 14, cursor: 'pointer', padding: 0, marginBottom: 20, fontFamily: 'inherit' }}>← Geri dön</button>
+        <div className="card" style={{ marginBottom: 16, textAlign: 'center', padding: '24px' }}>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 4px', fontFamily: 'monospace' }}>{trackingNo}</p>
+          <h2 style={{ fontSize: 18, fontWeight: 700, margin: '8px 0 4px' }}>Kargo firmasını otomatik bulamadık</h2>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>Bu gönderiyi hangi firma taşıdı?</p>
         </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {carriers.map(c => (
+            <button key={c.id} onClick={() => handleCarrierSelect(c)} className="card" style={{
+              display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px', cursor: 'pointer', textAlign: 'left', width: '100%', fontSize: 15, fontWeight: 600,
+              fontFamily: 'inherit', color: 'var(--text-primary)', transition: 'border-color 0.2s' }}>
+              {c.logo_url
+                ? <img src={c.logo_url} alt={c.name} className="carrier-logo" onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'inline' }} />
+                : null}
+              <span style={{ fontSize: 22, display: c.logo_url ? 'none' : 'inline' }}>{c.logo_emoji}</span>
+              <span>{c.name}</span>
+            </button>))}
+        </div>
+      </div>
+    )
 
-        {/* Performans Özeti */}
-        {has && (
-          <div className="card" style={{ marginBottom: 16 }}>
-            <h3 style={{ fontSize: 13, fontWeight: 700, margin: '0 0 16px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 1 }}>📊 Performans Özeti</h3>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <div style={{ textAlign: 'center', flex: 1 }}>
-                <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 4px' }}>Çıkış</p>
-                <p style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{trackingData.originCity || '—'}</p>
-                {trackingData.pickupDate && <p style={{ fontSize: 11, color: 'var(--text-dim)', margin: '4px 0 0' }}>{formatDate(trackingData.pickupDate)}</p>}
-              </div>
-              <div style={{ flex: 0.8, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                {trackingData.deliveryDays && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{trackingData.deliveryDays} gün</span>}
-                <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
-                  <div style={{ flex: 1, height: 2, background: 'linear-gradient(90deg, #F59E0B, #10B981)' }} />
-                  <span style={{ fontSize: 14 }}>📦</span>
-                </div>
-              </div>
-              <div style={{ textAlign: 'center', flex: 1 }}>
-                <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 4px' }}>Varış</p>
-                <p style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{trackingData.destinationCity || '—'}</p>
-                {trackingData.deliveryDate && <p style={{ fontSize: 11, color: 'var(--text-dim)', margin: '4px 0 0' }}>{formatDate(trackingData.deliveryDate)}</p>}
-              </div>
-            </div>
-            {trackingData.deliveryDays && (
-              <div style={{ background: 'var(--bg-input)', borderRadius: 10, padding: '14px 16px', textAlign: 'center' }}>
-                <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 4px' }}>Teslim Süresi</p>
-                <p style={{ fontSize: 28, fontWeight: 800, margin: 0,
-                  color: trackingData.deliveryDays <= 1 ? 'var(--green)' : trackingData.deliveryDays <= 3 ? 'var(--yellow)' : 'var(--red)' }}>
-                  {trackingData.deliveryDays} gün</p>
+    // ── FLOW: Puanlama ──
+    if (flow === 'rate') {
+      if (submitted) return (
+        <div className="container" style={{ textAlign: 'center', paddingTop: 120 }}>
+          <div style={{ fontSize: 64, marginBottom: 16 }}>✅</div>
+          <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>Puanın Kaydedildi!</h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>Değerlendirmen için teşekkürler.</p>
+        </div>
+      )
+
+      const has = trackingData && (trackingData.originCity || trackingData.destinationCity || trackingData.deliveryDays)
+
+      return (
+        <div className="container">
+          <button onClick={() => { setFlow('select_carrier'); setRating(0) }} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 14, cursor: 'pointer', padding: 0, marginBottom: 20, fontFamily: 'inherit' }}>← Geri dön</button>
+
+          <div className="card" style={{ marginBottom: 16, textAlign: 'center', padding: '28px 24px' }}>
+            {selectedCarrierInfo?.logo_url
+              ? <img src={selectedCarrierInfo.logo_url} alt={selectedCarrierInfo.name} className="carrier-logo-lg" style={{ margin: '0 auto' }} onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'inline' }} />
+              : null}
+            <span style={{ fontSize: 36, display: selectedCarrierInfo?.logo_url ? 'none' : 'inline' }}>{selectedCarrierInfo?.logo_emoji}</span>
+            <h2 style={{ fontSize: 20, fontWeight: 700, margin: '8px 0 4px', color: 'var(--brand)' }}>{selectedCarrierInfo?.name}</h2>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0, fontFamily: 'monospace' }}>{trackingNo}</p>
+            {trackingData?.status && (
+              <div style={{ display: 'inline-block', marginTop: 10, padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+                background: trackingData.status === 'delivered' ? '#E7F5EC' : '#FFF6E0',
+                color: trackingData.status === 'delivered' ? 'var(--green)' : 'var(--yellow)' }}>
+                {trackingData.status === 'delivered' ? '✓ Teslim Edildi' : trackingData.status === 'intransit' ? '🚚 Yolda' : trackingData.status === 'outfordelivery' ? '📬 Dağıtımda' : '📦 ' + trackingData.status}
               </div>
             )}
           </div>
+
+          {has && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <h3 style={{ fontSize: 13, fontWeight: 700, margin: '0 0 16px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 1 }}>📊 Performans Özeti</h3>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <div style={{ textAlign: 'center', flex: 1 }}>
+                  <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 4px' }}>Çıkış</p>
+                  <p style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{trackingData.originCity || '—'}</p>
+                  {trackingData.pickupDate && <p style={{ fontSize: 11, color: 'var(--text-dim)', margin: '4px 0 0' }}>{formatDate(trackingData.pickupDate)}</p>}
+                </div>
+                <div style={{ flex: 0.8, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                  {trackingData.deliveryDays && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{trackingData.deliveryDays} gün</span>}
+                  <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+                    <div style={{ flex: 1, height: 2, background: 'linear-gradient(90deg, #F59E0B, #10B981)' }} />
+                    <span style={{ fontSize: 14 }}>📦</span>
+                  </div>
+                </div>
+                <div style={{ textAlign: 'center', flex: 1 }}>
+                  <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 4px' }}>Varış</p>
+                  <p style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{trackingData.destinationCity || '—'}</p>
+                  {trackingData.deliveryDate && <p style={{ fontSize: 11, color: 'var(--text-dim)', margin: '4px 0 0' }}>{formatDate(trackingData.deliveryDate)}</p>}
+                </div>
+              </div>
+              {trackingData.deliveryDays && (
+                <div style={{ background: 'var(--bg-input)', borderRadius: 10, padding: '14px 16px', textAlign: 'center' }}>
+                  <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 4px' }}>Teslim Süresi</p>
+                  <p style={{ fontSize: 28, fontWeight: 800, margin: 0,
+                    color: trackingData.deliveryDays <= 1 ? 'var(--green)' : trackingData.deliveryDays <= 3 ? 'var(--yellow)' : 'var(--red)' }}>
+                    {trackingData.deliveryDays} gün</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {sourceNote && (
+            <div style={{ display: 'inline-block', background: 'var(--bg-input)', borderRadius: 20, padding: '4px 14px', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16, fontWeight: 600 }}>
+              🏷️ {sourceNote}
+            </div>
+          )}
+
+          <div className="card" style={{ textAlign: 'center' }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px' }}>Bu teslimata kaç puan veriyorsun?</h3>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 20px' }}>Deneyimini 1-5 arası değerlendir</p>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8 }}><StarRating rating={rating} onRate={setRating} size={40} /></div>
+            {rating > 0 && <p style={{ fontSize: 14, color: 'var(--brand)', margin: '8px 0 0', fontWeight: 600 }}>
+              {['', 'Çok kötü 😤', 'Kötü 😕', 'İdare eder 😐', 'İyi 🙂', 'Mükemmel 🤩'][rating]}</p>}
+            {ratingError && <p className="error-text" style={{ marginTop: 12 }}>{ratingError}</p>}
+            <button className="btn-primary" onClick={handleRatingSubmit} disabled={rating === 0 || ratingSubmitting} style={{ marginTop: 20 }}>
+              {ratingSubmitting ? 'Gönderiliyor...' : 'Puanı Gönder'}
+            </button>
+          </div>
+        </div>
+      )
+    }
+
+    // ── FLOW: Kargo detayı ──
+    if (flow === 'detail' && detailParcel) {
+      const p = detailParcel
+      const tier = deliveryTier(p)
+      return (
+        <div className="container">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <button onClick={() => { setFlow(null); setDetailParcel(null) }} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 14, cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}>← Geri dön</button>
+            <div className="kebab-wrap">
+              <button className="kebab-btn" onClick={() => setKebabOpen(o => !o)}>⋮</button>
+              {kebabOpen && (
+                <div className="kebab-menu">
+                  {!deleteConfirm
+                    ? <button className="danger" onClick={() => setDeleteConfirm(true)}>🗑 Sil</button>
+                    : <button className="danger" onClick={() => handleDeleteParcel(p.id)}>Emin misin? Sil</button>}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Hero */}
+          <div className="card" style={{ marginBottom: 16, textAlign: 'center', padding: '28px 24px' }}>
+            {p.carrier?.logo_url
+              ? <img src={p.carrier.logo_url} alt={p.carrier.name} className="carrier-logo-lg" style={{ margin: '0 auto' }} onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'inline' }} />
+              : null}
+            <span style={{ fontSize: 36, display: p.carrier?.logo_url ? 'none' : 'inline' }}>{p.carrier?.logo_emoji}</span>
+            <h2 style={{ fontSize: 20, fontWeight: 700, margin: '8px 0 4px', color: 'var(--brand)' }}>{p.carrier?.name || 'Bilinmeyen firma'}</h2>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0, fontFamily: 'monospace' }}>{p.tracking_number}</p>
+            <div className={`status-pill ${tier.cls}`} style={{ marginTop: 12 }}><span className="dot" />{tier.label}</div>
+            {p.source_note && (
+              <div style={{ display: 'inline-block', background: 'var(--bg-input)', borderRadius: 20, padding: '3px 12px', fontSize: 11, color: 'var(--text-secondary)', marginTop: 10, fontWeight: 600 }}>
+                🏷️ {p.source_note}
+              </div>
+            )}
+          </div>
+
+          {/* Performans / ilerleme */}
+          {(p.origin_city || p.destination_city || p.delivery_days != null) && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <h3 style={{ fontSize: 13, fontWeight: 700, margin: '0 0 16px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 1 }}>📊 Teslimat Özeti</h3>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <div style={{ textAlign: 'center', flex: 1 }}>
+                  <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 4px' }}>Çıkış</p>
+                  <p style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{p.origin_city || '—'}</p>
+                  {p.pickup_date && <p style={{ fontSize: 11, color: 'var(--text-dim)', margin: '4px 0 0' }}>{formatDate(p.pickup_date)}</p>}
+                </div>
+                <div style={{ flex: 0.8, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                  {p.delivery_days != null && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{p.delivery_days} gün</span>}
+                  <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+                    <div style={{ flex: 1, height: 3, borderRadius: 2, background: 'linear-gradient(90deg, #F59E0B, #10B981)' }} />
+                    <span style={{ fontSize: 14 }}>📦</span>
+                  </div>
+                </div>
+                <div style={{ textAlign: 'center', flex: 1 }}>
+                  <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 4px' }}>Varış</p>
+                  <p style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{p.destination_city || '—'}</p>
+                  {p.delivery_date && <p style={{ fontSize: 11, color: 'var(--text-dim)', margin: '4px 0 0' }}>{formatDate(p.delivery_date)}</p>}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Zaman çizelgesi */}
+          <div className="card" style={{ marginBottom: 16 }}>
+            <h3 style={{ fontSize: 13, fontWeight: 700, margin: '0 0 18px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 1 }}>🕒 Kargo Hareketleri</h3>
+            <div className="timeline">
+              <div className="timeline-item">
+                <div className="rail"><div className="node" /><div className="line done" /></div>
+                <div className="content">
+                  <p style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>Kargo Alındı</p>
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '2px 0 0' }}>{p.origin_city ? `${p.origin_city} · ` : ''}{formatDate(p.pickup_date) || 'Tarih bilinmiyor'}</p>
+                </div>
+              </div>
+              <div className="timeline-item">
+                <div className="rail"><div className="node" /><div className="line done" /></div>
+                <div className="content">
+                  <p style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>Yolda</p>
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '2px 0 0' }}>Dağıtım merkezleri arasında taşındı</p>
+                </div>
+              </div>
+              <div className="timeline-item">
+                <div className="rail"><div className="node" /></div>
+                <div className="content">
+                  <p style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>Teslim Edildi</p>
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '2px 0 0' }}>{p.destination_city ? `${p.destination_city} · ` : ''}{formatDate(p.delivery_date) || 'Tarih bilinmiyor'}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Senin puanın */}
+          <div className="card" style={{ textAlign: 'center' }}>
+            <h3 style={{ fontSize: 13, fontWeight: 700, margin: '0 0 12px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 1 }}>Senin Puanın</h3>
+            <div style={{ display: 'flex', justifyContent: 'center' }}><StarRating rating={p.score} interactive={false} size={30} /></div>
+          </div>
+        </div>
+      )
+    }
+
+    // ── TAB CONTENT (list / scores / profile) with bottom tab bar ──
+    return (
+      <div className="container with-tabbar" style={{ position: 'relative' }}>
+
+        {tab === 'list' && (
+          <>
+            <div style={{ marginBottom: 20 }}>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>Hoş geldin,</p>
+              <h2 style={{ fontSize: 20, fontWeight: 700, margin: '2px 0 0', color: 'var(--brand)' }}>{user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Kullanıcı'}</h2>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>📦 Kargolarım</h3>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{myParcelsLoading ? 'Yükleniyor...' : `${myParcels.length} kargo`}</span>
+            </div>
+
+            {!myParcelsLoading && myParcels.length === 0 && (
+              <div className="card" style={{ textAlign: 'center', padding: '40px 24px' }}>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>📭</div>
+                <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>Henüz kargo eklemedin.</p>
+                <p style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 4 }}>Sağ alttaki + butonuna dokunarak takip numaranı ekle.</p>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {myParcels.map(p => {
+                const tier = deliveryTier(p)
+                return (
+                  <button key={p.id} className="parcel-card" onClick={() => openDetail(p)}>
+                    {p.carrier?.logo_url
+                      ? <img src={p.carrier.logo_url} alt={p.carrier.name} className="carrier-logo" onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'inline' }} />
+                      : null}
+                    <span style={{ fontSize: 20, display: p.carrier?.logo_url ? 'none' : 'inline' }}>{p.carrier?.logo_emoji}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>{p.carrier?.name || 'Bilinmeyen firma'}</p>
+                      <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '2px 0 4px', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.tracking_number || '—'}{p.source_note ? ` · ${p.source_note}` : ''}</p>
+                      <div className={`status-pill ${tier.cls}`}><span className="dot" />{tier.label}</div>
+                    </div>
+                    <span className="chevron">›</span>
+                  </button>
+                )
+              })}
+            </div>
+          </>
         )}
 
-        {/* Opsiyonel not */}
-        <div className="card" style={{ marginBottom: 16 }}>
-          <label className="label">Not (opsiyonel)</label>
-          <input className="input" placeholder="Örn: Trendyol siparişi" value={sourceNote} onChange={e => setSourceNote(e.target.value)} />
-        </div>
+        {tab === 'scores' && (
+          <>
+            <h2 style={{ fontSize: 20, fontWeight: 800, color: 'var(--brand)', marginBottom: 18 }}>🏆 Kargo Skorları</h2>
+            <div className="card">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>Genel Sıralama</span>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{scores.reduce((a, s) => a + Number(s.total_ratings), 0).toLocaleString('tr-TR')} değerlendirme</span>
+              </div>
+              <ScoreList scores={scores} />
+            </div>
+          </>
+        )}
 
-        {/* Puanlama */}
-        <div className="card" style={{ textAlign: 'center' }}>
-          <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px' }}>Bu teslimata kaç puan veriyorsun?</h3>
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 20px' }}>Deneyimini 1-5 arası değerlendir</p>
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8 }}><StarRating rating={rating} onRate={setRating} size={40} /></div>
-          {rating > 0 && <p style={{ fontSize: 14, color: 'var(--brand)', margin: '8px 0 0', fontWeight: 600 }}>
-            {['', 'Çok kötü 😤', 'Kötü 😕', 'İdare eder 😐', 'İyi 🙂', 'Mükemmel 🤩'][rating]}</p>}
-          {ratingError && <p className="error-text" style={{ marginTop: 12 }}>{ratingError}</p>}
-          <button className="btn-primary" onClick={handleRatingSubmit} disabled={rating === 0 || ratingSubmitting} style={{ marginTop: 20 }}>
-            {ratingSubmitting ? 'Gönderiliyor...' : 'Puanı Gönder'}
+        {tab === 'profile' && (
+          <>
+            <h2 style={{ fontSize: 20, fontWeight: 800, color: 'var(--brand)', marginBottom: 18 }}>👤 Profil</h2>
+            <div className="card" style={{ marginBottom: 16, textAlign: 'center', padding: '28px 24px' }}>
+              <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'var(--brand)', color: '#FFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, fontWeight: 700, margin: '0 auto 12px' }}>
+                {(user?.user_metadata?.full_name || user?.email || '?').charAt(0).toUpperCase()}
+              </div>
+              <p style={{ fontSize: 17, fontWeight: 700, margin: 0 }}>{user?.user_metadata?.full_name || user?.email?.split('@')[0]}</p>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '4px 0 0' }}>{user?.email}</p>
+            </div>
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}>
+                <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Toplam kargo</span>
+                <span style={{ fontSize: 13, fontWeight: 700 }}>{myParcels.length}</span>
+              </div>
+            </div>
+            <button className="btn-secondary" onClick={handleLogout}>Çıkış Yap</button>
+            <p className="footer">KargoSkor © 2026 — Tüm hakları saklıdır.</p>
+          </>
+        )}
+
+        {/* Yüzen ekle butonu (sadece kargolarım sekmesinde) */}
+        {tab === 'list' && <button className="fab" onClick={openAddFlow} aria-label="Kargo Ekle">+</button>}
+
+        {/* Alt tab bar */}
+        <div className="tabbar">
+          <button className={`tabbar-item${tab === 'list' ? ' active' : ''}`} onClick={() => setTab('list')}>
+            <span className="tabbar-icon">📦</span><span className="tabbar-label">Kargolarım</span>
+          </button>
+          <button className={`tabbar-item${tab === 'scores' ? ' active' : ''}`} onClick={() => setTab('scores')}>
+            <span className="tabbar-icon">🏆</span><span className="tabbar-label">Skorlar</span>
+          </button>
+          <button className={`tabbar-item${tab === 'profile' ? ' active' : ''}`} onClick={() => setTab('profile')}>
+            <span className="tabbar-icon">👤</span><span className="tabbar-label">Profil</span>
           </button>
         </div>
       </div>
     )
   }
-  // ═══ MY PARCELS (Gelen Kargolarım) ═══
-  if (screen === 'my_parcels') return (
-    <div className="container">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <button onClick={() => setScreen('dashboard')} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 14, cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}>← Geri dön</button>
-      </div>
-
-      <div style={{ marginBottom: 20 }}>
-        <h2 style={{ fontSize: 22, fontWeight: 800, color: 'var(--brand)', margin: 0 }}>📦 Gelen Kargolarım</h2>
-        <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '4px 0 0' }}>
-          {myParcelsLoading ? 'Yükleniyor...' : `${myParcels.length} kargo`}
-        </p>
-      </div>
-
-      {!myParcelsLoading && myParcels.length === 0 && (
-        <div className="card" style={{ textAlign: 'center', padding: '40px 24px' }}>
-          <div style={{ fontSize: 40, marginBottom: 12 }}>📭</div>
-          <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>Henüz kargo eklemedin.</p>
-          <p style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 4 }}>Takip numarası girip puanladığında burada görünecek.</p>
-        </div>
-      )}
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {myParcels.map(p => (
-          <div key={p.id} className="card" style={{ padding: '18px 20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-              {p.carrier?.logo_url
-                ? <img src={p.carrier.logo_url} alt={p.carrier.name} className="carrier-logo" onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'inline' }} />
-                : null}
-              <span style={{ fontSize: 20, display: p.carrier?.logo_url ? 'none' : 'inline' }}>{p.carrier?.logo_emoji}</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>{p.carrier?.name || 'Bilinmeyen firma'}</p>
-                <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '2px 0 0', fontFamily: 'monospace' }}>{p.tracking_number || '—'}</p>
-              </div>
-              <div style={{ display: 'flex', gap: 2 }}>
-                {[1,2,3,4,5].map(s => (
-                  <span key={s} style={{ fontSize: 14, color: s <= p.score ? '#FFB500' : '#E5E5E5' }}>★</span>
-                ))}
-              </div>
-            </div>
-
-            {p.source_note && (
-              <div style={{ display: 'inline-block', background: 'var(--bg-input)', borderRadius: 20, padding: '3px 12px', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600 }}>
-                🏷️ {p.source_note}
-              </div>
-            )}
-
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-muted)', borderTop: '1px solid var(--border-light)', paddingTop: 10 }}>
-              {p.origin_city && <span>📍 {p.origin_city}{p.destination_city ? ` → ${p.destination_city}` : ''}</span>}
-              {p.delivery_date && <span>📅 {formatDate(p.delivery_date)}</span>}
-              {p.delivery_days != null && <span style={{ fontWeight: 700, color: p.delivery_days <= 1 ? 'var(--green)' : p.delivery_days <= 3 ? 'var(--yellow)' : 'var(--red)' }}>⏱ {p.delivery_days} gün</span>}
-              {!p.origin_city && !p.delivery_days && <span style={{ color: 'var(--text-dim)' }}>Detaylı teslimat verisi yok</span>}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
 
   return null
 }
