@@ -149,20 +149,28 @@ export default function Home() {
       const { data: alreadyUsed } = await supabase.rpc('check_tracking_used', { hash })
       if (alreadyUsed) { setTrackingError('Bu takip numarası daha önce değerlendirilmiş.'); setTrackingLoading(false); return }
 
+      let json = null
       let apiData = null
       try {
         const res = await fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trackingNumber: trackingNo.trim() }) })
-        const json = await res.json()
+        json = await res.json()
         if (json.verified && json.eventCount > 0) apiData = json
       } catch (apiErr) { console.error('API error:', apiErr) }
 
       setTrackingData(apiData)
 
-      // Kargo firmasını otomatik tanımaya çalış
+      // Kargo firmasını otomatik tanımaya çalış — checkpoint verisi (apiData) henüz
+      // gelmemiş olsa bile AfterShip genelde firmayı hemen (courierCode/courierName) tanır,
+      // o yüzden 'verified' beklemeden json'dan da eşleştirmeyi dene.
+      const norm = s => (s || '').toLowerCase()
+        .replace(/ı/g, 'i').replace(/i̇/g, 'i').replace(/ç/g, 'c').replace(/ğ/g, 'g')
+        .replace(/ö/g, 'o').replace(/ş/g, 's').replace(/ü/g, 'u').replace(/[^a-z0-9]/g, '')
+
       let matched = null
-      if (apiData?.courierName) {
-        const name = apiData.courierName.toLowerCase()
-        matched = carriers.find(c => name.includes(c.name.toLowerCase()) || c.name.toLowerCase().includes(name))
+      const guess = json?.courierName || json?.courierCode
+      if (guess) {
+        const ng = norm(guess)
+        matched = carriers.find(c => { const nc = norm(c.name); return ng && nc && (nc.includes(ng) || ng.includes(nc)) })
       }
       if (!matched && addSelectedCarrierId) matched = carriers.find(c => c.id === addSelectedCarrierId)
 
