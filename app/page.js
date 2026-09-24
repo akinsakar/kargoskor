@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
 function StarRating({ rating, onRate, size = 32, interactive = true }) {
@@ -86,18 +86,58 @@ export default function Home() {
   const [detailParcel, setDetailParcel] = useState(null)
   const [kebabOpen, setKebabOpen] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
+  const [forgotEmail, setForgotEmail] = useState('')
+  const [forgotSent, setForgotSent] = useState(false)
+  const [forgotSubmitting, setForgotSubmitting] = useState(false)
+  const [newPassword, setNewPassword] = useState('')
+  const [newPassword2, setNewPassword2] = useState('')
+  const [resetError, setResetError] = useState('')
+  const [resetSubmitting, setResetSubmitting] = useState(false)
+  const [resetSuccess, setResetSuccess] = useState(false)
+
+  const recoveryModeRef = useRef(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) { setUser(session.user); setScreen('app') }
+      if (session?.user && !recoveryModeRef.current) { setUser(session.user); setScreen('app') }
       setLoading(false)
     })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') { recoveryModeRef.current = true; setScreen('reset_password'); return }
+      if (recoveryModeRef.current) return // sıfırlama ekranındayken diğer auth olaylarını yok say
       if (session?.user) { setUser(session.user); setScreen('app') }
       else { setUser(null); setScreen('landing') }
     })
     return () => subscription.unsubscribe()
   }, [])
+
+  async function handleForgotPassword(e) {
+    e.preventDefault(); setAuthError('')
+    if (!forgotEmail.trim()) { setAuthError('E-posta adresini girin.'); return }
+    setForgotSubmitting(true)
+    const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail.trim(), {
+      redirectTo: typeof window !== 'undefined' ? window.location.origin : '',
+    })
+    setForgotSubmitting(false)
+    if (error) { setAuthError(error.message); return }
+    setForgotSent(true)
+  }
+
+  async function handleSetNewPassword(e) {
+    e.preventDefault(); setResetError('')
+    if (!newPassword || newPassword.length < 6) { setResetError('Şifre en az 6 karakter olmalı.'); return }
+    if (newPassword !== newPassword2) { setResetError('Şifreler eşleşmiyor.'); return }
+    setResetSubmitting(true)
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    setResetSubmitting(false)
+    if (error) { setResetError(error.message); return }
+    setResetSuccess(true)
+    setNewPassword(''); setNewPassword2('')
+    recoveryModeRef.current = false
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session?.user) setUser(session.user)
+    setTimeout(() => { setResetSuccess(false); setScreen('app') }, 1800)
+  }
 
   useEffect(() => { loadScores(); loadCarriers() }, [])
   useEffect(() => { if (user && screen === 'app') loadMyParcels() }, [user, screen])
@@ -273,33 +313,93 @@ export default function Home() {
         <p style={{ color: 'var(--text-muted)', fontSize: 14, marginTop: 8 }}>Kargonu puanla, herkesin işini kolaylaştır.</p>
       </div>
       <div className="card">
-        <div style={{ display: 'flex', marginBottom: 24, background: 'var(--bg-input)', borderRadius: 8, padding: 3 }}>
-          {['register', 'login'].map(mode => (
-            <button key={mode} onClick={() => { setLoginMode(mode); setAuthError('') }}
-              style={{ flex: 1, padding: '10px 0', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.2s',
-                background: loginMode === mode ? '#FFFFFF' : 'transparent', color: loginMode === mode ? 'var(--brand)' : 'var(--text-muted)',
-                boxShadow: loginMode === mode ? '0 1px 3px rgba(0,0,0,0.1)' : 'none' }}>
-              {mode === 'register' ? 'Kayıt Ol' : 'Giriş Yap'}
-            </button>))}
-        </div>
-        <form onSubmit={loginMode === 'register' ? handleRegister : handleLogin}>
-          {loginMode === 'register' && <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
-            <div style={{ flex: 1 }}><label className="label">Ad</label><input className="input" placeholder="Adınız" value={firstName} onChange={e => setFirstName(e.target.value)} /></div>
-            <div style={{ flex: 1 }}><label className="label">Soyad</label><input className="input" placeholder="Soyadınız" value={lastName} onChange={e => setLastName(e.target.value)} /></div>
-          </div>}
-          <div style={{ marginBottom: 14 }}><label className="label">E-posta</label><input className="input" type="email" placeholder="ornek@mail.com" value={email} onChange={e => setEmail(e.target.value)} /></div>
-          <div style={{ marginBottom: 14 }}><label className="label">Şifre</label><input className="input" type="password" placeholder="En az 6 karakter" value={password} onChange={e => setPassword(e.target.value)} /></div>
-          {authError && <p className="error-text" style={{ marginBottom: 14 }}>{authError}</p>}
-          <button className="btn-primary" type="submit">{loginMode === 'register' ? 'Kayıt Ol' : 'Giriş Yap'}</button>
-        </form>
-        <div className="divider"><span>veya</span></div>
-        <button className="btn-secondary" onClick={handleGoogleLogin}><span style={{ fontSize: 18, fontWeight: 700 }}>G</span> Google ile devam et</button>
+        {loginMode !== 'forgot' && (
+          <div style={{ display: 'flex', marginBottom: 24, background: 'var(--bg-input)', borderRadius: 8, padding: 3 }}>
+            {['register', 'login'].map(mode => (
+              <button key={mode} onClick={() => { setLoginMode(mode); setAuthError(''); setForgotSent(false) }}
+                style={{ flex: 1, padding: '10px 0', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.2s',
+                  background: loginMode === mode ? '#FFFFFF' : 'transparent', color: loginMode === mode ? 'var(--brand)' : 'var(--text-muted)',
+                  boxShadow: loginMode === mode ? '0 1px 3px rgba(0,0,0,0.1)' : 'none' }}>
+                {mode === 'register' ? 'Kayıt Ol' : 'Giriş Yap'}
+              </button>))}
+          </div>
+        )}
+
+        {loginMode === 'forgot' ? (
+          forgotSent ? (
+            <div style={{ textAlign: 'center', padding: '10px 0' }}>
+              <div style={{ fontSize: 40, marginBottom: 10 }}>📧</div>
+              <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>E-postanı kontrol et</h3>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>{forgotEmail} adresine bir şifre sıfırlama linki gönderdik. Linke tıklayınca yeni şifreni belirleyebileceksin.</p>
+              <button className="btn-secondary" onClick={() => { setLoginMode('login'); setForgotSent(false); setAuthError('') }}>Giriş ekranına dön</button>
+            </div>
+          ) : (
+            <form onSubmit={handleForgotPassword}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Şifreni sıfırla</h3>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>Kayıtlı e-posta adresini gir, sana bir sıfırlama linki gönderelim.</p>
+              <div style={{ marginBottom: 14 }}><label className="label">E-posta</label><input className="input" type="email" placeholder="ornek@mail.com" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} autoFocus /></div>
+              {authError && <p className="error-text" style={{ marginBottom: 14 }}>{authError}</p>}
+              <button className="btn-primary" type="submit" disabled={forgotSubmitting}>{forgotSubmitting ? 'Gönderiliyor...' : 'Sıfırlama Linki Gönder'}</button>
+              <button type="button" onClick={() => { setLoginMode('login'); setAuthError('') }} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer', padding: 0, marginTop: 14, fontFamily: 'inherit', display: 'block', width: '100%', textAlign: 'center' }}>← Giriş ekranına dön</button>
+            </form>
+          )
+        ) : (
+          <>
+            <form onSubmit={loginMode === 'register' ? handleRegister : handleLogin}>
+              {loginMode === 'register' && <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+                <div style={{ flex: 1 }}><label className="label">Ad</label><input className="input" placeholder="Adınız" value={firstName} onChange={e => setFirstName(e.target.value)} /></div>
+                <div style={{ flex: 1 }}><label className="label">Soyad</label><input className="input" placeholder="Soyadınız" value={lastName} onChange={e => setLastName(e.target.value)} /></div>
+              </div>}
+              <div style={{ marginBottom: 14 }}><label className="label">E-posta</label><input className="input" type="email" placeholder="ornek@mail.com" value={email} onChange={e => setEmail(e.target.value)} /></div>
+              <div style={{ marginBottom: 14 }}>
+                <label className="label">Şifre</label>
+                <input className="input" type="password" placeholder="En az 6 karakter" value={password} onChange={e => setPassword(e.target.value)} />
+                {loginMode === 'login' && (
+                  <button type="button" onClick={() => { setLoginMode('forgot'); setForgotEmail(email); setAuthError('') }}
+                    style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer', padding: 0, marginTop: 8, fontFamily: 'inherit', fontWeight: 600 }}>
+                    Şifremi unuttum?
+                  </button>
+                )}
+              </div>
+              {authError && <p className="error-text" style={{ marginBottom: 14 }}>{authError}</p>}
+              <button className="btn-primary" type="submit">{loginMode === 'register' ? 'Kayıt Ol' : 'Giriş Yap'}</button>
+            </form>
+            <div className="divider"><span>veya</span></div>
+            <button className="btn-secondary" onClick={handleGoogleLogin}><span style={{ fontSize: 18, fontWeight: 700 }}>G</span> Google ile devam et</button>
+          </>
+        )}
       </div>
       {scores.length > 0 && <div className="card" style={{ marginTop: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}><span style={{ fontSize: 20 }}>🏆</span><h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Kargo Skorları</h3></div>
         <ScoreList scores={scores} />
       </div>}
       <p className="footer">Kayıt olarak Kullanım Koşulları ve Gizlilik Politikası'nı kabul etmiş olursunuz.</p>
+    </div>
+  )
+
+  // ═══════════════════════════ ŞİFRE SIFIRLAMA (mail linkinden geldiğinde) ═══════════════════════════
+  if (screen === 'reset_password') return (
+    <div className="container">
+      <div style={{ textAlign: 'center', paddingTop: 40, marginBottom: 32 }}>
+        <div style={{ fontSize: 44, marginBottom: 8 }}>🔑</div>
+        <h1 style={{ fontSize: 24, fontWeight: 800, margin: 0, color: 'var(--brand)' }}>Yeni Şifre Belirle</h1>
+      </div>
+      <div className="card">
+        {resetSuccess ? (
+          <div style={{ textAlign: 'center', padding: '10px 0' }}>
+            <div style={{ fontSize: 40, marginBottom: 10 }}>✅</div>
+            <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>Şifren güncellendi!</h3>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>Uygulamaya yönlendiriliyorsun...</p>
+          </div>
+        ) : (
+          <form onSubmit={handleSetNewPassword}>
+            <div style={{ marginBottom: 14 }}><label className="label">Yeni Şifre</label><input className="input" type="password" placeholder="En az 6 karakter" value={newPassword} onChange={e => setNewPassword(e.target.value)} autoFocus /></div>
+            <div style={{ marginBottom: 14 }}><label className="label">Yeni Şifre (tekrar)</label><input className="input" type="password" placeholder="Şifreni tekrar gir" value={newPassword2} onChange={e => setNewPassword2(e.target.value)} /></div>
+            {resetError && <p className="error-text" style={{ marginBottom: 14 }}>{resetError}</p>}
+            <button className="btn-primary" type="submit" disabled={resetSubmitting}>{resetSubmitting ? 'Kaydediliyor...' : 'Şifreyi Kaydet'}</button>
+          </form>
+        )}
+      </div>
     </div>
   )
 
