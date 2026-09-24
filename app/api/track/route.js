@@ -1,6 +1,15 @@
 import { NextResponse } from 'next/server'
 
 const BASE = 'https://api.aftership.com/tracking/2024-04/trackings'
+const DETECT_URL = 'https://api.aftership.com/tracking/2024-04/couriers/detect'
+
+// KargoSkor sadece Türkiye içi gönderiler için kullanılıyor — AfterShip'in
+// dünya genelindeki binlerce kuryesi arasından yanlış tahmin yapmasını
+// önlemek için tespiti sadece bizim desteklediğimiz firmalarla sınırlıyoruz.
+const TURKISH_SLUGS = [
+  'aras-kargo', 'yurtici-kargo', 'ptt-kargo', 'surat-kargo',
+  'trendyol-express', 'hepsijet', 'sendeo', 'kolay-gelsin', 'dhl-global-mail-api',
+]
 
 function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -16,9 +25,25 @@ async function fetchTracking(trackingNumber, apiKey) {
   return { obj: trackings.length > 0 ? trackings[0] : null, status: res.status, error: null }
 }
 
+// Tespiti sadece TURKISH_SLUGS listesindeki kuryelerle sınırlı tutarak dener.
+async function detectCourier(trackingNumber, apiKey) {
+  try {
+    const res = await fetch(DETECT_URL, {
+      method: 'POST',
+      headers: { 'as-api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tracking: { tracking_number: trackingNumber, slug: TURKISH_SLUGS } }),
+    })
+    const data = await res.json().catch(() => null)
+    const matches = data?.data?.couriers || []
+    return { status: res.status, matches: matches.map(m => m.slug).filter(Boolean), raw: data }
+  } catch (e) {
+    return { status: null, matches: [], error: String(e) }
+  }
+}
+
 export async function POST(request) {
   try {
-    const { trackingNumber } = await request.json()
+    const { trackingNumber, slug: clientSlug } = await request.json()
 
     if (!trackingNumber) {
       return NextResponse.json({ error: 'Takip numarası gerekli', verified: false }, { status: 200 })
@@ -32,18 +57,40 @@ export async function POST(request) {
     const num = trackingNumber.trim()
     const debugInfo = {}
 
+    // 0) Kullanıcı henüz bir firma seçmediyse, tespiti bizim desteklediğimiz
+    // Türk kargo firmalarıyla sınırlı tutmayı dene (AfterShip'in tüm dünya
+    // kuryeleri arasından yanlış tahmin yapmasını önlemek için).
+    let forcedSlug = clientSlug || null
+    if (!forcedSlug) {
+      const detect = await detectCourier(num, apiKey)
+      debugInfo.detectStatus = detect.status
+      debugInfo.detectMatches = detect.matches
+      if (detect.matches.length >= 1) forcedSlug = detect.matches[0]
+    }
+
     // 1) Var olan takibi kontrol et
     let getResult = await fetchTracking(num, apiKey)
     let trackingObj = getResult.obj
     debugInfo.getStatus = getResult.status
     debugInfo.getError = getResult.error
 
-    // 2) Yoksa oluştur (AfterShip otomatik kurye tespiti yapar)
+    // Mevcut kayıt varsa ama farklı/yanlış bir kuryeye bağlıysa — silip
+    // doğru (tespit edilen ya da elle seçilen) kuryeyle yeniden oluştur.
+    if (forcedSlug && trackingObj && trackingObj.slug !== forcedSlug) {
+      await fetch(`${BASE}/${trackingObj.slug}/${encodeURIComponent(num)}`, {
+        method: 'DELETE', headers: { 'as-api-key': apiKey },
+      }).catch(() => {})
+      trackingObj = null
+      debugInfo.deletedWrongSlug = true
+    }
+
+    // 2) Yoksa oluştur (forcedSlug varsa o kuryeyle, yoksa AfterShip otomatik tespit eder)
     if (!trackingObj) {
+      const trackingBody = forcedSlug ? { tracking_number: num, slug: forcedSlug } : { tracking_number: num }
       const createRes = await fetch(BASE, {
         method: 'POST',
         headers: { 'as-api-key': apiKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tracking: { tracking_number: num } }),
+        body: JSON.stringify({ tracking: trackingBody }),
       })
       const createData = await createRes.json().catch(() => null)
       debugInfo.createStatus = createRes.status
@@ -70,9 +117,11 @@ export async function POST(request) {
     }
 
     // 3) Checkpoint verisi gelene kadar birkaç kez dene (AfterShip async çalışıyor)
+    // Not: tespit + silme/yeniden oluşturma adımları da süre kullanabileceğinden
+    // döngüyü sunucu zaman aşımına takılmayacak şekilde kısa tuttuk.
     let checkpoints = trackingObj.checkpoints || []
-    for (let i = 0; i < 4 && checkpoints.length === 0; i++) {
-      await wait(2500)
+    for (let i = 0; i < 2 && checkpoints.length === 0; i++) {
+      await wait(2000)
       const refreshed = await fetchTracking(num, apiKey)
       if (refreshed.obj) {
         trackingObj = refreshed.obj
