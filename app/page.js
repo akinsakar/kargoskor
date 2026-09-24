@@ -54,6 +54,37 @@ function deliveryTier(p) {
   return { cls: 'red', label: 'Geç Teslimat' }
 }
 
+function norm(s) {
+  return (s || '').toLowerCase()
+    .replace(/ı/g, 'i').replace(/i̇/g, 'i').replace(/ç/g, 'c').replace(/ğ/g, 'g')
+    .replace(/ö/g, 'o').replace(/ş/g, 's').replace(/ü/g, 'u').replace(/[^a-z0-9]/g, '')
+}
+
+// AfterShip kurye kodu bizim firma isimlerimizle birebir eşleşmeyebilir
+// (ör. "dhl-global-mail-api" → "DHL eCommerce Türkiye"). Test ettikçe bu
+// tabloyu büyütüyoruz.
+const KNOWN_CODE_ALIASES = {
+  'dhl-global-mail-api': 'dhl ecommerce turkiye',
+  'dhl-ecommerce': 'dhl ecommerce turkiye',
+  'dhl-ecommerce-tr': 'dhl ecommerce turkiye',
+  'mng-kargo': 'dhl ecommerce turkiye',
+}
+
+// Kullanıcı elle bir firma seçtiğinde AfterShip'e "bu numara şu kuryeye ait"
+// diye zorlayabilmek için tahmini AfterShip kurye kodları (slug). Kesin
+// doğrulanmamış olanlar var — test ettikçe düzeltiyoruz.
+const CARRIER_SLUG_HINTS = {
+  'aras kargo': 'aras-kargo',
+  'yurtici kargo': 'yurtici-kargo',
+  'ptt kargo': 'ptt-kargo',
+  'surat kargo': 'surat-kargo',
+  'trendyol express': 'trendyol-express',
+  'hepsijet': 'hepsijet',
+  'sendeo': 'sendeo',
+  'kolay gelsin': 'kolay-gelsin',
+  'dhl ecommerce turkiye': 'dhl-global-mail-api',
+}
+
 export default function Home() {
   const [screen, setScreen] = useState('landing') // 'landing' | 'app'
   const [tab, setTab] = useState('list') // 'list' | 'scores' | 'profile'
@@ -204,20 +235,6 @@ export default function Home() {
       // Kargo firmasını otomatik tanımaya çalış — checkpoint verisi (apiData) henüz
       // gelmemiş olsa bile AfterShip genelde firmayı hemen (courierCode/courierName) tanır,
       // o yüzden 'verified' beklemeden json'dan da eşleştirmeyi dene.
-      const norm = s => (s || '').toLowerCase()
-        .replace(/ı/g, 'i').replace(/i̇/g, 'i').replace(/ç/g, 'c').replace(/ğ/g, 'g')
-        .replace(/ö/g, 'o').replace(/ş/g, 's').replace(/ü/g, 'u').replace(/[^a-z0-9]/g, '')
-
-      // AfterShip kurye kodu bizim firma isimlerimizle birebir eşleşmeyebilir
-      // (ör. "dhl-global-mail-api" → "DHL eCommerce Türkiye"). Test ettikçe bu
-      // tabloyu büyütüyoruz.
-      const KNOWN_CODE_ALIASES = {
-        'dhl-global-mail-api': 'dhl ecommerce turkiye',
-        'dhl-ecommerce': 'dhl ecommerce turkiye',
-        'dhl-ecommerce-tr': 'dhl ecommerce turkiye',
-        'mng-kargo': 'dhl ecommerce turkiye',
-      }
-
       let matched = null
       const rawCode = (json?.courierCode || '').toLowerCase()
       if (KNOWN_CODE_ALIASES[rawCode]) {
@@ -242,8 +259,27 @@ export default function Home() {
     setTrackingLoading(false)
   }
 
-  function handleCarrierSelect(carrier) {
-    setSelectedCarrierId(carrier.id); setSelectedCarrierInfo(carrier); setFlow('rate')
+  async function handleCarrierSelect(carrier) {
+    setSelectedCarrierId(carrier.id); setSelectedCarrierInfo(carrier)
+
+    // Bilinen bir AfterShip kurye koduna sahipsek, doğru firmayla tekrar
+    // sorgulamayı dene — belki bu sefer gerçek hareket verisini yakalarız.
+    const slug = CARRIER_SLUG_HINTS[norm(carrier.name)]
+    if (slug) {
+      setTrackingLoading(true)
+      try {
+        const res = await fetch('/api/track', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ trackingNumber: trackingNo.trim(), slug }),
+        })
+        const json2 = await res.json()
+        setDebugApi(json2)
+        if (json2.verified && json2.eventCount > 0) setTrackingData(json2)
+      } catch (err) { console.error('Retry error:', err) }
+      setTrackingLoading(false)
+    }
+
+    setFlow('rate')
   }
 
   async function handleRatingSubmit() {
@@ -472,18 +508,25 @@ export default function Home() {
             {debugApi.debug && <div style={{ marginTop: 6 }}>debug={JSON.stringify(debugApi.debug)}</div>}
           </div>
         )}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {carriers.map(c => (
-            <button key={c.id} onClick={() => handleCarrierSelect(c)} className="card" style={{
-              display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px', cursor: 'pointer', textAlign: 'left', width: '100%', fontSize: 15, fontWeight: 600,
-              fontFamily: 'inherit', color: 'var(--text-primary)', transition: 'border-color 0.2s' }}>
-              {c.logo_url
-                ? <img src={c.logo_url} alt={c.name} className="carrier-logo" onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'inline' }} />
-                : null}
-              <span style={{ fontSize: 22, display: c.logo_url ? 'none' : 'inline' }}>{c.logo_emoji}</span>
-              <span>{c.name}</span>
-            </button>))}
-        </div>
+        {trackingLoading ? (
+          <div className="card" style={{ textAlign: 'center', padding: '32px 24px' }}>
+            <div style={{ fontSize: 32, marginBottom: 10 }}>⏳</div>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>Seçtiğin firmayla kargo hareketleri aranıyor, birkaç saniye sürebilir...</p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {carriers.map(c => (
+              <button key={c.id} onClick={() => handleCarrierSelect(c)} className="card" style={{
+                display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px', cursor: 'pointer', textAlign: 'left', width: '100%', fontSize: 15, fontWeight: 600,
+                fontFamily: 'inherit', color: 'var(--text-primary)', transition: 'border-color 0.2s' }}>
+                {c.logo_url
+                  ? <img src={c.logo_url} alt={c.name} className="carrier-logo" onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'inline' }} />
+                  : null}
+                <span style={{ fontSize: 22, display: c.logo_url ? 'none' : 'inline' }}>{c.logo_emoji}</span>
+                <span>{c.name}</span>
+              </button>))}
+          </div>
+        )}
       </div>
     )
 
