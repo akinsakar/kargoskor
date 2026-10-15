@@ -6,6 +6,11 @@
   box-sizing: border-box;
 }
 
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
 :root {
   --bg-primary: #FBF6EE;
   --bg-card: #FFFFFF;
