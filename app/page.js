@@ -3,6 +3,22 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
+// ═══ KargoSkor logo (kutu + yıldız) ═══
+function Logo({ size = 44, boxColor = 'var(--brand)', starColor = 'var(--accent)' }) {
+  return (
+    <svg width={size} height={size * (92 / 76)} viewBox="0 0 76 92" fill="none" aria-hidden="true">
+      <path d="M38 14.9L60 27V49L38 61.1L16 49V27L38 14.9Z" stroke={boxColor} strokeWidth="2.4" strokeLinejoin="round" />
+      <path d="M16 27L38 39.1L60 27" stroke={boxColor} strokeWidth="2.4" strokeLinejoin="round" />
+      <path d="M38 39.1V61.1" stroke={boxColor} strokeWidth="2.4" />
+      <path d="M17.2,75 L18.38,78.38 L21.96,78.46 L19.1,80.62 L20.14,84.04 L17.2,82 L14.26,84.04 L15.3,80.62 L12.44,78.46 L16.02,78.38 Z" fill={starColor} />
+      <path d="M27.6,75 L28.78,78.38 L32.36,78.46 L29.5,80.62 L30.54,84.04 L27.6,82 L24.66,84.04 L25.7,80.62 L22.84,78.46 L26.42,78.38 Z" fill={starColor} />
+      <path d="M38,75 L39.18,78.38 L42.76,78.46 L39.9,80.62 L40.94,84.04 L38,82 L35.06,84.04 L36.1,80.62 L33.24,78.46 L36.82,78.38 Z" fill={starColor} />
+      <path d="M48.4,75 L49.58,78.38 L53.16,78.46 L50.3,80.62 L51.34,84.04 L48.4,82 L45.46,84.04 L46.5,80.62 L43.64,78.46 L47.22,78.38 Z" fill={starColor} />
+      <path d="M58.8,75 L59.98,78.38 L63.56,78.46 L60.7,80.62 L61.74,84.04 L58.8,82 L55.86,84.04 L56.9,80.62 L54.04,78.46 L57.62,78.38 Z" fill={starColor} />
+    </svg>
+  )
+}
+
 function StarRating({ rating, onRate, size = 32, interactive = true }) {
   const [hover, setHover] = useState(0)
   return (
@@ -13,7 +29,7 @@ function StarRating({ rating, onRate, size = 32, interactive = true }) {
           onMouseLeave={() => interactive && setHover(0)}
           style={{ background: 'none', border: 'none', cursor: interactive ? 'pointer' : 'default',
             fontSize: size, padding: 0, lineHeight: 1,
-            color: star <= (hover || rating) ? '#FFB500' : '#D5D5D5',
+            color: star <= (hover || rating) ? '#F2A900' : '#E3D9C4',
             transform: star <= (hover || rating) ? 'scale(1.1)' : 'scale(1)',
             transition: 'all 0.15s ease' }}>★</button>
       ))}
@@ -26,7 +42,7 @@ function ScoreBar({ score, max = 5 }) {
   const color = score >= 4 ? '#0A7D3E' : score >= 3 ? '#B4770A' : '#C10E21'
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%' }}>
-      <div style={{ flex: 1, height: 8, background: '#EFEFEF', borderRadius: 4, overflow: 'hidden' }}>
+      <div style={{ flex: 1, height: 8, background: '#EFE6D4', borderRadius: 4, overflow: 'hidden' }}>
         <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 4, transition: 'width 0.8s ease' }} />
       </div>
       <span style={{ fontWeight: 700, fontSize: 15, color, minWidth: 32, textAlign: 'right' }}>
@@ -340,13 +356,18 @@ export default function Home() {
     }
   }
 
-  if (loading) return (<div className="container" style={{ paddingTop: 100, textAlign: 'center' }}><div style={{ fontSize: 44 }}>📦</div><p style={{ color: 'var(--text-muted)', marginTop: 12 }}>Yükleniyor...</p></div>)
+  if (loading) return (
+    <div className="container" style={{ paddingTop: 100, textAlign: 'center' }}>
+      <div style={{ display: 'flex', justifyContent: 'center' }}><Logo size={48} /></div>
+      <p style={{ color: 'var(--text-muted)', marginTop: 12 }}>Yükleniyor...</p>
+    </div>
+  )
 
   // ═══════════════════════════ LANDING ═══════════════════════════
   if (screen === 'landing') return (
     <div className="container">
       <div style={{ textAlign: 'center', paddingTop: 40, marginBottom: 40 }}>
-        <div style={{ fontSize: 44, marginBottom: 8 }}>📦</div>
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}><Logo size={56} /></div>
         <h1 style={{ fontSize: 32, fontWeight: 800, margin: 0, letterSpacing: -0.5, color: 'var(--brand)' }}>KargoSkor</h1>
         <p style={{ color: 'var(--text-muted)', fontSize: 14, marginTop: 8 }}>Kargonu puanla, herkesin işini kolaylaştır.</p>
       </div>
@@ -357,7 +378,7 @@ export default function Home() {
               <button key={mode} onClick={() => { setLoginMode(mode); setAuthError(''); setForgotSent(false) }}
                 style={{ flex: 1, padding: '10px 0', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.2s',
                   background: loginMode === mode ? '#FFFFFF' : 'transparent', color: loginMode === mode ? 'var(--brand)' : 'var(--text-muted)',
-                  boxShadow: loginMode === mode ? '0 1px 3px rgba(0,0,0,0.1)' : 'none' }}>
+                  boxShadow: loginMode === mode ? '0 1px 3px rgba(28,43,71,0.12)' : 'none' }}>
                 {mode === 'register' ? 'Kayıt Ol' : 'Giriş Yap'}
               </button>))}
           </div>
@@ -574,7 +595,7 @@ export default function Home() {
                 <div style={{ flex: 0.8, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
                   {trackingData.deliveryDays && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{trackingData.deliveryDays} gün</span>}
                   <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
-                    <div style={{ flex: 1, height: 2, background: 'linear-gradient(90deg, #F59E0B, #10B981)' }} />
+                    <div style={{ flex: 1, height: 2, background: 'linear-gradient(90deg, var(--accent), var(--green))' }} />
                     <span style={{ fontSize: 14 }}>📦</span>
                   </div>
                 </div>
@@ -665,7 +686,7 @@ export default function Home() {
                 <div style={{ flex: 0.8, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
                   {p.delivery_days != null && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{p.delivery_days} gün</span>}
                   <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
-                    <div style={{ flex: 1, height: 3, borderRadius: 2, background: 'linear-gradient(90deg, #F59E0B, #10B981)' }} />
+                    <div style={{ flex: 1, height: 3, borderRadius: 2, background: 'linear-gradient(90deg, var(--accent), var(--green))' }} />
                     <span style={{ fontSize: 14 }}>📦</span>
                   </div>
                 </div>
