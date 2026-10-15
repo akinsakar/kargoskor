@@ -76,6 +76,17 @@ function norm(s) {
     .replace(/ö/g, 'o').replace(/ş/g, 's').replace(/ü/g, 'u').replace(/[^a-z0-9]/g, '')
 }
 
+function initials(name) {
+  return (name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()
+}
+
+function scoreChipStyle(score) {
+  const s = Number(score)
+  if (s >= 4.3) return { background: 'var(--green-bg)', color: 'var(--green)' }
+  if (s >= 3.8) return { background: '#FFF4DC', color: 'var(--accent-dark)' }
+  return { background: '#F6E7D6', color: '#9C5B16' }
+}
+
 // AfterShip kurye kodu bizim firma isimlerimizle birebir eşleşmeyebilir
 // (ör. "dhl-global-mail-api" → "DHL eCommerce Türkiye"). Test ettikçe bu
 // tabloyu büyütüyoruz.
@@ -100,6 +111,9 @@ const CARRIER_SLUG_HINTS = {
   'kolay gelsin': 'kolay-gelsin',
   'dhl ecommerce turkiye': 'dhl-global-mail-api',
 }
+
+// Firmalar İçin CTA'sının gittiği iletişim adresi — istersen değiştir.
+const BUSINESS_CONTACT_EMAIL = 'akinsakar@gmail.com'
 
 export default function Home() {
   const [screen, setScreen] = useState('landing') // 'landing' | 'app'
@@ -142,6 +156,7 @@ export default function Home() {
   const [debugApi, setDebugApi] = useState(null)
   const [resetSubmitting, setResetSubmitting] = useState(false)
   const [resetSuccess, setResetSuccess] = useState(false)
+  const [recentRatings, setRecentRatings] = useState([])
 
   const recoveryModeRef = useRef(false)
   const authSectionRef = useRef(null)
@@ -193,7 +208,7 @@ export default function Home() {
     setTimeout(() => { setResetSuccess(false); setScreen('app') }, 1800)
   }
 
-  useEffect(() => { loadScores(); loadCarriers() }, [])
+  useEffect(() => { loadScores(); loadCarriers(); loadRecentRatings() }, [])
   useEffect(() => { if (user && screen === 'app') loadMyParcels() }, [user, screen])
 
   async function loadScores() {
@@ -203,6 +218,16 @@ export default function Home() {
   async function loadCarriers() {
     const { data } = await supabase.from('carriers').select('*').eq('is_active', true).order('name')
     if (data) setCarriers(data)
+  }
+  async function loadRecentRatings() {
+    try {
+      const { data, error } = await supabase
+        .from('ratings')
+        .select('score, origin_city, destination_city, delivery_days, created_at, carrier:carriers(name, logo_url, logo_emoji)')
+        .order('created_at', { ascending: false })
+        .limit(6)
+      if (!error && data) setRecentRatings(data)
+    } catch {}
   }
 
   async function handleRegister(e) {
@@ -372,65 +397,187 @@ export default function Home() {
   // ═══════════════════════════ LANDING (tanıtım sayfası) ═══════════════════════════
   if (screen === 'landing') {
     const totalRatings = scores.reduce((a, s) => a + Number(s.total_ratings), 0)
-    const overallAvg = totalRatings > 0
-      ? scores.reduce((a, s) => a + Number(s.avg_score) * Number(s.total_ratings), 0) / totalRatings
-      : 0
 
     return (
-      <div className="landing-page">
+      <div className="site">
+
+        {/* ───── Header ───── */}
+        <header className="site-header">
+          <div className="site-wrap site-header-inner">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+              <Logo size={26} boxColor="#FBF6EE" starColor="var(--accent)" />
+              <span style={{ fontWeight: 700, fontSize: 20, color: '#FBF6EE' }}>KargoSkor</span>
+            </div>
+            <nav className="site-nav">
+              <a href="#how">Nasıl Çalışır</a>
+              <a href="#board">Skor Tablosu</a>
+              {recentRatings.length > 0 && <a href="#reviews">Değerlendirmeler</a>}
+              <a href="#business">Firmalar İçin</a>
+            </nav>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <button className="lp-btn lp-btn-ghost-dark" onClick={() => scrollToAuth('login')}>Giriş Yap</button>
+              <button className="lp-btn lp-btn-primary" onClick={() => scrollToAuth('register')}>Kargonu Takip Et</button>
+            </div>
+          </div>
+        </header>
 
         {/* ───── Hero ───── */}
-        <section className="hero-band">
-          <div className="landing-wrap hero-inner">
-            <div className="hero-copy">
-              <div className="hero-logo-row">
-                <Logo size={40} boxColor="#FBF6EE" starColor="var(--accent)" />
-                <span className="hero-wordmark">KargoSkor</span>
+        <section className="site-hero">
+          <div className="site-wrap site-hero-inner">
+            <div className="site-hero-copy">
+              <div className="lp-chip" style={{ background: 'rgba(242,169,0,0.14)', color: 'var(--accent-light)', marginBottom: 22 }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 12.5l2.2 2.2L16 9.5" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /><circle cx="12" cy="12" r="9.5" stroke="currentColor" strokeWidth="1.6" /></svg>
+                Her puan takip numarasıyla doğrulanır
               </div>
-              <h1 className="hero-title">Kargonu puanla,<br />herkesin işini kolaylaştır.</h1>
-              <p className="hero-sub">Takip numaranı gir, kargo firmasını otomatik bulalım, teslimat deneyimini puanla — gerçek ve doğrulanmış yorumlarla kargo firmalarını karşılaştır.</p>
-              <div className="hero-cta-row">
-                <button className="btn-hero-primary" onClick={() => scrollToAuth('register')}>Hemen Kayıt Ol</button>
-                <button className="btn-hero-secondary" onClick={() => scrollToAuth('login')}>Giriş Yap</button>
+              <h1 className="site-hero-title">Kargo deneyimini <span style={{ color: 'var(--accent)' }}>gerçek verilerle</span> puanla.</h1>
+              <p className="site-hero-sub">KargoSkor, sadece gerçekten elinize ulaşmış gönderiler için puan vermenize izin verir. Yorum yazmazsınız — teslimatı 1-5 yıldızla değerlendirirsiniz, biz de kargo firmalarını bu gerçek verilerle sıralarız.</p>
+
+              <form className="site-hero-track" onSubmit={e => { e.preventDefault(); scrollToAuth('register') }}>
+                <input type="text" placeholder="Takip numaranı gir (örn. 6078439584776)" value={trackingNo} onChange={e => setTrackingNo(e.target.value)} />
+                <button className="lp-btn lp-btn-primary" type="submit">Puanla</button>
+              </form>
+              <p style={{ margin: '12px 0 0', fontSize: 13, color: 'var(--muted-2)' }}>Kargo firmanı girmene gerek yok — takip numarandan otomatik buluyoruz.</p>
+            </div>
+
+            <div className="site-hero-visual">
+              <div className="lp-card site-sample-card">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div className="site-badge">YK</div>
+                    <div>
+                      <div style={{ fontWeight: 650, fontSize: 14.5 }}>Yurtiçi Kargo</div>
+                      <div style={{ fontSize: 12, color: 'var(--muted-2)' }}>Takip No: 6078 4395 8477</div>
+                    </div>
+                  </div>
+                  <span className="lp-chip" style={{ background: 'var(--green-bg)', color: 'var(--green)' }}>Teslim Edildi</span>
+                </div>
+                <StarRating rating={5} interactive={false} size={20} />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 10, marginTop: 16 }}>
+                  <div style={{ background: 'var(--bg-primary)', borderRadius: 10, padding: '11px 12px' }}>
+                    <div style={{ fontSize: 11.5, color: 'var(--muted-2)', fontWeight: 600 }}>TESLİMAT SÜRESİ</div>
+                    <div style={{ fontSize: 15, fontWeight: 650, marginTop: 2 }}>1 gün içinde</div>
+                  </div>
+                  <div style={{ background: 'var(--bg-primary)', borderRadius: 10, padding: '11px 12px' }}>
+                    <div style={{ fontSize: 11.5, color: 'var(--muted-2)', fontWeight: 600 }}>PUAN</div>
+                    <div style={{ fontSize: 15, fontWeight: 650, marginTop: 2 }}>5 / 5</div>
+                  </div>
+                </div>
+                <div style={{ marginTop: 14, fontSize: 12, color: 'var(--muted-2)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M9 12.5l2.2 2.2L16 9.5" stroke="var(--green)" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" /><circle cx="12" cy="12" r="9.5" stroke="var(--green)" strokeWidth="1.6" /></svg>
+                  Takip numarasıyla doğrulandı
+                </div>
               </div>
             </div>
-            <div className="hero-visual" aria-hidden="true"><Logo size={140} boxColor="#FBF6EE" starColor="var(--accent)" /></div>
           </div>
         </section>
 
         {/* ───── İstatistik şeridi ───── */}
-        {totalRatings > 0 && (
-          <section className="stats-band">
-            <div className="landing-wrap stats-inner">
-              <div className="stat-tile"><span className="stat-num">{carriers.length}</span><span className="stat-label">Kargo Firması</span></div>
-              <div className="stat-tile"><span className="stat-num">{totalRatings.toLocaleString('tr-TR')}</span><span className="stat-label">Doğrulanmış Puan</span></div>
-              <div className="stat-tile"><span className="stat-num">{overallAvg.toFixed(1)}</span><span className="stat-label">Ortalama Memnuniyet</span></div>
-            </div>
-          </section>
-        )}
+        <section className="site-stats">
+          <div className="site-wrap site-stats-inner">
+            <div><span className="site-stat-num">{totalRatings.toLocaleString('tr-TR')}</span><span className="site-stat-label">doğrulanmış puan</span></div>
+            <div><span className="site-stat-num">{carriers.length}</span><span className="site-stat-label">kargo firması</span></div>
+            <div><span className="site-stat-num">%100</span><span className="site-stat-label">takip numarasıyla doğrulandı</span></div>
+            <div><span className="site-stat-num">0</span><span className="site-stat-label">serbest metin yorum</span></div>
+          </div>
+        </section>
 
         {/* ───── Nasıl çalışır ───── */}
-        <section className="landing-wrap how-section">
-          <h2 className="section-title">Nasıl Çalışır?</h2>
-          <div className="how-grid">
-            <div className="how-card"><span className="how-num">1</span><h3>Takip numaranı gir</h3><p>Kargo firmanı bilmene gerek yok, biz otomatik tanırız.</p></div>
-            <div className="how-card"><span className="how-num">2</span><h3>Teslimatı bekle</h3><p>Çıkış, varış ve teslimat süresini otomatik olarak takip ederiz.</p></div>
-            <div className="how-card"><span className="how-num">3</span><h3>Deneyimini puanla</h3><p>1-5 yıldız ver, diğer kullanıcılara yol göster.</p></div>
+        <section id="how" className="site-wrap site-section">
+          <div style={{ maxWidth: 560 }}>
+            <div className="lp-eyebrow">Nasıl çalışır</div>
+            <h2 className="site-h2" style={{ marginTop: 10 }}>Üç adımda, hiç yorum yazmadan.</h2>
+            <p className="site-p" style={{ marginTop: 12 }}>Şikayet platformlarının aksine KargoSkor'da serbest metin yoktur — bu yüzden her puan ölçülebilir, adil ve manipülasyona kapalıdır.</p>
+          </div>
+          <div className="site-how-grid">
+            <div className="lp-card" style={{ padding: 28 }}>
+              <div className="site-num-badge">1</div>
+              <h3 className="site-h3">Takip numaranı gir</h3>
+              <p className="site-p">Kargo firmasını seçmene gerek yok — sistem otomatik olarak bulur. Bulamazsa, listeden tek tıkla seçersin.</p>
+            </div>
+            <div className="lp-card" style={{ padding: 28 }}>
+              <div className="site-num-badge">2</div>
+              <h3 className="site-h3">Teslimat sonrası puanla</h3>
+              <p className="site-p">Teslimat deneyimine 1-5 yıldız ver. Yazmana gerek yok — sadece puan.</p>
+            </div>
+            <div className="lp-card" style={{ padding: 28 }}>
+              <div className="site-num-badge">3</div>
+              <h3 className="site-h3">Skor tablosunu gör</h3>
+              <p className="site-p">Puanın anında genel sıralamaya işler. Hangi firma hızlı, hangisi değil — gerçek verilerle gör.</p>
+            </div>
           </div>
         </section>
 
         {/* ───── Skor tablosu ───── */}
         {scores.length > 0 && (
-          <section className="landing-wrap scores-section">
-            <div className="card">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}><span style={{ fontSize: 20 }}>🏆</span><h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Kargo Skorları</h3></div>
-              <ScoreList scores={scores} />
+          <section id="board" className="site-wrap site-section site-board">
+            <div className="site-board-copy">
+              <div className="lp-eyebrow">Skor tablosu</div>
+              <h2 className="site-h2" style={{ marginTop: 10, maxWidth: 420 }}>Kargo firmaları, doğrulanmış müşteri deneyimine göre sıralanır.</h2>
+              <p className="site-p" style={{ marginTop: 12, maxWidth: 420 }}>Her satır, gerçekten o gönderiyi teslim almış kullanıcıların puanlarının ortalamasıdır.</p>
+            </div>
+
+            <div className="lp-card site-board-table">
+              <div className="site-board-row site-board-head">
+                <div style={{ width: 28 }}>#</div>
+                <div style={{ flex: 1 }}>Firma</div>
+                <div style={{ width: 110, textAlign: 'right' }}>Ort. Teslimat</div>
+                <div style={{ width: 80, textAlign: 'right' }}>Skor</div>
+              </div>
+              {scores.map((s, i) => (
+                <div key={s.id || i} className="site-board-row">
+                  <div style={{ width: 28, fontWeight: 650, color: 'var(--muted-2)' }}>{i + 1}</div>
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 11, minWidth: 0 }}>
+                    {s.logo_url
+                      ? <img src={s.logo_url} alt={s.name} className="site-badge" style={{ objectFit: 'contain', background: '#FFFFFF' }} onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex' }} />
+                      : null}
+                    <div className="site-badge" style={{ display: s.logo_url ? 'none' : 'flex' }}>{initials(s.name)}</div>
+                    <span style={{ fontWeight: 600, fontSize: 14.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
+                  </div>
+                  <div style={{ width: 110, textAlign: 'right', fontSize: 14, color: 'var(--muted)' }}>{Number(s.avg_delivery_days) > 0 ? `${s.avg_delivery_days} gün` : '—'}</div>
+                  <div style={{ width: 80, textAlign: 'right' }}><span className="lp-chip" style={scoreChipStyle(s.avg_score)}>{Number(s.avg_score).toFixed(1)}</span></div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* ───── Son değerlendirmeler ───── */}
+        {recentRatings.length > 0 && (
+          <section id="reviews" className="site-wrap site-section">
+            <div style={{ maxWidth: 520 }}>
+              <div className="lp-eyebrow">Son değerlendirmeler</div>
+              <h2 className="site-h2" style={{ marginTop: 10 }}>Akan, canlı ve her biri gerçek bir teslimata bağlı.</h2>
+            </div>
+            <div className="site-reviews-grid">
+              {recentRatings.map((r, i) => (
+                <div key={i} className="lp-card" style={{ padding: 22 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                      <div className="site-badge" style={{ width: 30, height: 30, fontSize: 11.5 }}>{initials(r.carrier?.name)}</div>
+                      <span style={{ fontWeight: 600, fontSize: 13.5 }}>{r.carrier?.name || 'Bilinmeyen firma'}</span>
+                    </div>
+                    <span className="lp-chip" style={{ background: 'var(--green-bg)', color: 'var(--green)', fontSize: 11, padding: '4px 8px' }}>
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none"><path d="M9 12.5l2.2 2.2L16 9.5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" /><circle cx="12" cy="12" r="9.5" stroke="currentColor" strokeWidth="1.8" /></svg>
+                      Doğrulandı
+                    </span>
+                  </div>
+                  <div style={{ marginTop: 14 }}><StarRating rating={r.score} interactive={false} size={16} /></div>
+                  {r.delivery_days != null && (
+                    <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                      <span className="lp-chip" style={{ background: 'var(--bg-input)', color: 'var(--muted)', fontWeight: 600 }}>Teslimat: {r.delivery_days} gün</span>
+                    </div>
+                  )}
+                  {(r.origin_city || r.destination_city) && (
+                    <div style={{ marginTop: 14, fontSize: 12.5, color: 'var(--muted-2)' }}>{r.origin_city || '—'} → {r.destination_city || '—'}{r.delivery_days != null ? ` · ${r.delivery_days} gün` : ''}</div>
+                  )}
+                </div>
+              ))}
             </div>
           </section>
         )}
 
         {/* ───── Kayıt / Giriş kartı ───── */}
-        <section className="landing-wrap auth-section" ref={authSectionRef}>
+        <section className="site-wrap site-section" style={{ paddingTop: 0 }} ref={authSectionRef}>
           <div className="card" style={{ maxWidth: 440, margin: '0 auto' }}>
             {loginMode !== 'forgot' && (
               <div style={{ display: 'flex', marginBottom: 24, background: 'var(--bg-input)', borderRadius: 8, padding: 3 }}>
@@ -491,14 +638,46 @@ export default function Home() {
         </section>
 
         {/* ───── İşletmeler için ───── */}
-        <section className="landing-wrap business-cta">
-          <div className="business-card">
-            <h3>Bir kargo firması mı yönetiyorsun?</h3>
-            <p>KargoSkor üzerindeki performans verilerini ve müşteri yorumlarını kurumsal panelde görmek için bizimle iletişime geç.</p>
+        <section id="business" className="site-wrap site-section">
+          <div className="site-business-card">
+            <div style={{ maxWidth: 520 }}>
+              <div className="lp-eyebrow" style={{ color: 'var(--accent-light)' }}>Firmalar için</div>
+              <h2 style={{ fontSize: 28, marginTop: 10, color: '#FBF6EE', fontWeight: 700 }}>Müşterilerinizin gerçek deneyimini görün, itibarınızı yönetin.</h2>
+              <p style={{ marginTop: 12, fontSize: 15, color: '#A9B6C9', lineHeight: 1.6 }}>Puanlara itiraz edin, performansınızı rakiplerinizle karşılaştırın ve düşen bir puanı erkenden fark edin.</p>
+            </div>
+            <a href={`mailto:${BUSINESS_CONTACT_EMAIL}?subject=${encodeURIComponent('KargoSkor Firma Hesabı')}`} className="lp-btn lp-btn-primary" style={{ padding: '15px 26px' }}>Firma Hesabı Oluştur</a>
           </div>
         </section>
 
-        <p className="footer" style={{ maxWidth: 440, margin: '20px auto' }}>Kayıt olarak Kullanım Koşulları ve Gizlilik Politikası'nı kabul etmiş olursunuz.</p>
+        {/* ───── Footer ───── */}
+        <footer className="site-footer">
+          <div className="site-wrap site-footer-inner">
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 40, justifyContent: 'space-between' }}>
+              <div style={{ maxWidth: 280 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Logo size={20} boxColor="#FBF6EE" starColor="var(--accent)" />
+                  <span style={{ fontWeight: 700, fontSize: 17, color: '#FBF6EE' }}>KargoSkor</span>
+                </div>
+                <p style={{ marginTop: 12, fontSize: 13.5, color: 'var(--muted-2)', lineHeight: 1.6 }}>Türkiye'nin takip numarasıyla doğrulanmış kargo memnuniyet platformu.</p>
+              </div>
+              <div style={{ display: 'flex', gap: 56, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <span className="site-footer-heading">Platform</span>
+                  <a href="#how" className="site-footer-link">Nasıl Çalışır</a>
+                  <a href="#board" className="site-footer-link">Skor Tablosu</a>
+                  <a href="#business" className="site-footer-link">Firmalar İçin</a>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <span className="site-footer-heading">Yasal</span>
+                  <a href="#" className="site-footer-link">Kullanım Şartları</a>
+                  <a href="#" className="site-footer-link">Gizlilik ve KVKK</a>
+                  <a href="#" className="site-footer-link">Puanlara İtiraz</a>
+                </div>
+              </div>
+            </div>
+            <div className="site-footer-bottom">© 2026 KargoSkor. Tüm hakları saklıdır.</div>
+          </div>
+        </footer>
       </div>
     )
   }
