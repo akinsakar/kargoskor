@@ -144,6 +144,12 @@ export default function Home() {
   const [resetSuccess, setResetSuccess] = useState(false)
 
   const recoveryModeRef = useRef(false)
+  const authSectionRef = useRef(null)
+
+  function scrollToAuth(mode) {
+    setLoginMode(mode); setAuthError(''); setForgotSent(false)
+    authSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -363,78 +369,139 @@ export default function Home() {
     </div>
   )
 
-  // ═══════════════════════════ LANDING ═══════════════════════════
-  if (screen === 'landing') return (
-    <div className="container">
-      <div style={{ textAlign: 'center', paddingTop: 40, marginBottom: 40 }}>
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}><Logo size={56} /></div>
-        <h1 style={{ fontSize: 32, fontWeight: 800, margin: 0, letterSpacing: -0.5, color: 'var(--brand)' }}>KargoSkor</h1>
-        <p style={{ color: 'var(--text-muted)', fontSize: 14, marginTop: 8 }}>Kargonu puanla, herkesin işini kolaylaştır.</p>
-      </div>
-      <div className="card">
-        {loginMode !== 'forgot' && (
-          <div style={{ display: 'flex', marginBottom: 24, background: 'var(--bg-input)', borderRadius: 8, padding: 3 }}>
-            {['register', 'login'].map(mode => (
-              <button key={mode} onClick={() => { setLoginMode(mode); setAuthError(''); setForgotSent(false) }}
-                style={{ flex: 1, padding: '10px 0', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.2s',
-                  background: loginMode === mode ? '#FFFFFF' : 'transparent', color: loginMode === mode ? 'var(--brand)' : 'var(--text-muted)',
-                  boxShadow: loginMode === mode ? '0 1px 3px rgba(28,43,71,0.12)' : 'none' }}>
-                {mode === 'register' ? 'Kayıt Ol' : 'Giriş Yap'}
-              </button>))}
+  // ═══════════════════════════ LANDING (tanıtım sayfası) ═══════════════════════════
+  if (screen === 'landing') {
+    const totalRatings = scores.reduce((a, s) => a + Number(s.total_ratings), 0)
+    const overallAvg = totalRatings > 0
+      ? scores.reduce((a, s) => a + Number(s.avg_score) * Number(s.total_ratings), 0) / totalRatings
+      : 0
+
+    return (
+      <div className="landing-page">
+
+        {/* ───── Hero ───── */}
+        <section className="hero-band">
+          <div className="landing-wrap hero-inner">
+            <div className="hero-copy">
+              <div className="hero-logo-row">
+                <Logo size={40} boxColor="#FBF6EE" starColor="var(--accent)" />
+                <span className="hero-wordmark">KargoSkor</span>
+              </div>
+              <h1 className="hero-title">Kargonu puanla,<br />herkesin işini kolaylaştır.</h1>
+              <p className="hero-sub">Takip numaranı gir, kargo firmasını otomatik bulalım, teslimat deneyimini puanla — gerçek ve doğrulanmış yorumlarla kargo firmalarını karşılaştır.</p>
+              <div className="hero-cta-row">
+                <button className="btn-hero-primary" onClick={() => scrollToAuth('register')}>Hemen Kayıt Ol</button>
+                <button className="btn-hero-secondary" onClick={() => scrollToAuth('login')}>Giriş Yap</button>
+              </div>
+            </div>
+            <div className="hero-visual" aria-hidden="true"><Logo size={140} boxColor="#FBF6EE" starColor="var(--accent)" /></div>
           </div>
+        </section>
+
+        {/* ───── İstatistik şeridi ───── */}
+        {totalRatings > 0 && (
+          <section className="stats-band">
+            <div className="landing-wrap stats-inner">
+              <div className="stat-tile"><span className="stat-num">{carriers.length}</span><span className="stat-label">Kargo Firması</span></div>
+              <div className="stat-tile"><span className="stat-num">{totalRatings.toLocaleString('tr-TR')}</span><span className="stat-label">Doğrulanmış Puan</span></div>
+              <div className="stat-tile"><span className="stat-num">{overallAvg.toFixed(1)}</span><span className="stat-label">Ortalama Memnuniyet</span></div>
+            </div>
+          </section>
         )}
 
-        {loginMode === 'forgot' ? (
-          forgotSent ? (
-            <div style={{ textAlign: 'center', padding: '10px 0' }}>
-              <div style={{ fontSize: 40, marginBottom: 10 }}>📧</div>
-              <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>E-postanı kontrol et</h3>
-              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>{forgotEmail} adresine bir şifre sıfırlama linki gönderdik. Linke tıklayınca yeni şifreni belirleyebileceksin.</p>
-              <button className="btn-secondary" onClick={() => { setLoginMode('login'); setForgotSent(false); setAuthError('') }}>Giriş ekranına dön</button>
+        {/* ───── Nasıl çalışır ───── */}
+        <section className="landing-wrap how-section">
+          <h2 className="section-title">Nasıl Çalışır?</h2>
+          <div className="how-grid">
+            <div className="how-card"><span className="how-num">1</span><h3>Takip numaranı gir</h3><p>Kargo firmanı bilmene gerek yok, biz otomatik tanırız.</p></div>
+            <div className="how-card"><span className="how-num">2</span><h3>Teslimatı bekle</h3><p>Çıkış, varış ve teslimat süresini otomatik olarak takip ederiz.</p></div>
+            <div className="how-card"><span className="how-num">3</span><h3>Deneyimini puanla</h3><p>1-5 yıldız ver, diğer kullanıcılara yol göster.</p></div>
+          </div>
+        </section>
+
+        {/* ───── Skor tablosu ───── */}
+        {scores.length > 0 && (
+          <section className="landing-wrap scores-section">
+            <div className="card">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}><span style={{ fontSize: 20 }}>🏆</span><h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Kargo Skorları</h3></div>
+              <ScoreList scores={scores} />
             </div>
-          ) : (
-            <form onSubmit={handleForgotPassword}>
-              <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Şifreni sıfırla</h3>
-              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>Kayıtlı e-posta adresini gir, sana bir sıfırlama linki gönderelim.</p>
-              <div style={{ marginBottom: 14 }}><label className="label">E-posta</label><input className="input" type="email" placeholder="ornek@mail.com" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} autoFocus /></div>
-              {authError && <p className="error-text" style={{ marginBottom: 14 }}>{authError}</p>}
-              <button className="btn-primary" type="submit" disabled={forgotSubmitting}>{forgotSubmitting ? 'Gönderiliyor...' : 'Sıfırlama Linki Gönder'}</button>
-              <button type="button" onClick={() => { setLoginMode('login'); setAuthError('') }} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer', padding: 0, marginTop: 14, fontFamily: 'inherit', display: 'block', width: '100%', textAlign: 'center' }}>← Giriş ekranına dön</button>
-            </form>
-          )
-        ) : (
-          <>
-            <form onSubmit={loginMode === 'register' ? handleRegister : handleLogin}>
-              {loginMode === 'register' && <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
-                <div style={{ flex: 1 }}><label className="label">Ad</label><input className="input" placeholder="Adınız" value={firstName} onChange={e => setFirstName(e.target.value)} /></div>
-                <div style={{ flex: 1 }}><label className="label">Soyad</label><input className="input" placeholder="Soyadınız" value={lastName} onChange={e => setLastName(e.target.value)} /></div>
-              </div>}
-              <div style={{ marginBottom: 14 }}><label className="label">E-posta</label><input className="input" type="email" placeholder="ornek@mail.com" value={email} onChange={e => setEmail(e.target.value)} /></div>
-              <div style={{ marginBottom: 14 }}>
-                <label className="label">Şifre</label>
-                <input className="input" type="password" placeholder="En az 6 karakter" value={password} onChange={e => setPassword(e.target.value)} />
-                {loginMode === 'login' && (
-                  <button type="button" onClick={() => { setLoginMode('forgot'); setForgotEmail(email); setAuthError('') }}
-                    style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer', padding: 0, marginTop: 8, fontFamily: 'inherit', fontWeight: 600 }}>
-                    Şifremi unuttum?
-                  </button>
-                )}
-              </div>
-              {authError && <p className="error-text" style={{ marginBottom: 14 }}>{authError}</p>}
-              <button className="btn-primary" type="submit">{loginMode === 'register' ? 'Kayıt Ol' : 'Giriş Yap'}</button>
-            </form>
-            <div className="divider"><span>veya</span></div>
-            <button className="btn-secondary" onClick={handleGoogleLogin}><span style={{ fontSize: 18, fontWeight: 700 }}>G</span> Google ile devam et</button>
-          </>
+          </section>
         )}
+
+        {/* ───── Kayıt / Giriş kartı ───── */}
+        <section className="landing-wrap auth-section" ref={authSectionRef}>
+          <div className="card" style={{ maxWidth: 440, margin: '0 auto' }}>
+            {loginMode !== 'forgot' && (
+              <div style={{ display: 'flex', marginBottom: 24, background: 'var(--bg-input)', borderRadius: 8, padding: 3 }}>
+                {['register', 'login'].map(mode => (
+                  <button key={mode} onClick={() => { setLoginMode(mode); setAuthError(''); setForgotSent(false) }}
+                    style={{ flex: 1, padding: '10px 0', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.2s',
+                      background: loginMode === mode ? '#FFFFFF' : 'transparent', color: loginMode === mode ? 'var(--brand)' : 'var(--text-muted)',
+                      boxShadow: loginMode === mode ? '0 1px 3px rgba(28,43,71,0.12)' : 'none' }}>
+                    {mode === 'register' ? 'Kayıt Ol' : 'Giriş Yap'}
+                  </button>))}
+              </div>
+            )}
+
+            {loginMode === 'forgot' ? (
+              forgotSent ? (
+                <div style={{ textAlign: 'center', padding: '10px 0' }}>
+                  <div style={{ fontSize: 40, marginBottom: 10 }}>📧</div>
+                  <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>E-postanı kontrol et</h3>
+                  <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>{forgotEmail} adresine bir şifre sıfırlama linki gönderdik. Linke tıklayınca yeni şifreni belirleyebileceksin.</p>
+                  <button className="btn-secondary" onClick={() => { setLoginMode('login'); setForgotSent(false); setAuthError('') }}>Giriş ekranına dön</button>
+                </div>
+              ) : (
+                <form onSubmit={handleForgotPassword}>
+                  <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Şifreni sıfırla</h3>
+                  <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>Kayıtlı e-posta adresini gir, sana bir sıfırlama linki gönderelim.</p>
+                  <div style={{ marginBottom: 14 }}><label className="label">E-posta</label><input className="input" type="email" placeholder="ornek@mail.com" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} autoFocus /></div>
+                  {authError && <p className="error-text" style={{ marginBottom: 14 }}>{authError}</p>}
+                  <button className="btn-primary" type="submit" disabled={forgotSubmitting}>{forgotSubmitting ? 'Gönderiliyor...' : 'Sıfırlama Linki Gönder'}</button>
+                  <button type="button" onClick={() => { setLoginMode('login'); setAuthError('') }} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer', padding: 0, marginTop: 14, fontFamily: 'inherit', display: 'block', width: '100%', textAlign: 'center' }}>← Giriş ekranına dön</button>
+                </form>
+              )
+            ) : (
+              <>
+                <form onSubmit={loginMode === 'register' ? handleRegister : handleLogin}>
+                  {loginMode === 'register' && <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+                    <div style={{ flex: 1 }}><label className="label">Ad</label><input className="input" placeholder="Adınız" value={firstName} onChange={e => setFirstName(e.target.value)} /></div>
+                    <div style={{ flex: 1 }}><label className="label">Soyad</label><input className="input" placeholder="Soyadınız" value={lastName} onChange={e => setLastName(e.target.value)} /></div>
+                  </div>}
+                  <div style={{ marginBottom: 14 }}><label className="label">E-posta</label><input className="input" type="email" placeholder="ornek@mail.com" value={email} onChange={e => setEmail(e.target.value)} /></div>
+                  <div style={{ marginBottom: 14 }}>
+                    <label className="label">Şifre</label>
+                    <input className="input" type="password" placeholder="En az 6 karakter" value={password} onChange={e => setPassword(e.target.value)} />
+                    {loginMode === 'login' && (
+                      <button type="button" onClick={() => { setLoginMode('forgot'); setForgotEmail(email); setAuthError('') }}
+                        style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer', padding: 0, marginTop: 8, fontFamily: 'inherit', fontWeight: 600 }}>
+                        Şifremi unuttum?
+                      </button>
+                    )}
+                  </div>
+                  {authError && <p className="error-text" style={{ marginBottom: 14 }}>{authError}</p>}
+                  <button className="btn-primary" type="submit">{loginMode === 'register' ? 'Kayıt Ol' : 'Giriş Yap'}</button>
+                </form>
+                <div className="divider"><span>veya</span></div>
+                <button className="btn-secondary" onClick={handleGoogleLogin}><span style={{ fontSize: 18, fontWeight: 700 }}>G</span> Google ile devam et</button>
+              </>
+            )}
+          </div>
+        </section>
+
+        {/* ───── İşletmeler için ───── */}
+        <section className="landing-wrap business-cta">
+          <div className="business-card">
+            <h3>Bir kargo firması mı yönetiyorsun?</h3>
+            <p>KargoSkor üzerindeki performans verilerini ve müşteri yorumlarını kurumsal panelde görmek için bizimle iletişime geç.</p>
+          </div>
+        </section>
+
+        <p className="footer" style={{ maxWidth: 440, margin: '20px auto' }}>Kayıt olarak Kullanım Koşulları ve Gizlilik Politikası'nı kabul etmiş olursunuz.</p>
       </div>
-      {scores.length > 0 && <div className="card" style={{ marginTop: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}><span style={{ fontSize: 20 }}>🏆</span><h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Kargo Skorları</h3></div>
-        <ScoreList scores={scores} />
-      </div>}
-      <p className="footer">Kayıt olarak Kullanım Koşulları ve Gizlilik Politikası'nı kabul etmiş olursunuz.</p>
-    </div>
-  )
+    )
+  }
 
   // ═══════════════════════════ ŞİFRE SIFIRLAMA (mail linkinden geldiğinde) ═══════════════════════════
   if (screen === 'reset_password') return (
